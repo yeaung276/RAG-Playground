@@ -1,0 +1,8 @@
+{
+  "chunkingMethod": "semantic",
+  "maxChunkSize": 1024,
+  "minChunkSize": 512,
+  "indexTypes": ["BAAI/bge-m3", "bm25"],
+  "rerankOn": "child",
+  "rerankPool": 50
+}

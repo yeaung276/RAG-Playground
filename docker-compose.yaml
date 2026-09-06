@@ -1,0 +1,223 @@
+services:
+   api:
+      platform: linux/amd64
+      build:
+         context: .
+         dockerfile: build/Dockerfile
+         args:
+            - ENABLE_KNOWLEDGE_BASE=true
+      ports:
+         - 9997:8000
+      environment:
+         - LOG_LEVEL=
+         - AGENT_NAME=
+         - WELCOME_MESSAGE=
+         - WEBHOOK_ENDPOINT=
+         - WEBHOOK_TOKEN=
+         - STORAGE_PATH=.knowledge/storage
+         - SESSION_TIMEOUT_MINUTES=30
+         - TYPHOON_BASE_URL=http://typhoon:8000/v1
+         - TYPHOON_OCR_API_KEY=${MODEL_API_KEY}
+         - TYPHOON_OCR_MODEL=typhoon-ai/typhoon-ocr1.5-2b
+         - TEI_EMBEDDING_BASE_URL=http://tei-embedding:80
+         - TEI_EMBEDDING_API_KEY=
+         - TEI_EMBEDDING_RPS=
+         - TEI_RERANKER_BASE_URL=http://tei-reranker:80
+         - TEI_RERANKER_API_KEY=
+         - TEI_RERANKER_RPS=
+         - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/chat_gateway
+         - QDRANT_URL=http://qdrant:6333
+         - QDRANT_API_KEY=
+      restart: unless-stopped
+      depends_on:
+         db:
+            condition: service_healthy
+         qdrant:
+            condition: service_started
+         tei-embedding:
+            condition: service_started
+         tei-reranker:
+            condition: service_started
+
+   db:
+      image: postgres:16
+      restart: unless-stopped
+      environment:
+         - POSTGRES_USER=postgres
+         - POSTGRES_PASSWORD=postgres
+         - POSTGRES_DB=chat_gateway
+      ports:
+         - 5432:5432
+      volumes:
+         - pgdata:/var/lib/postgresql/data
+      healthcheck:
+         test: ["CMD-SHELL", "pg_isready -U postgres"]
+         interval: 5s
+         timeout: 5s
+         retries: 5
+
+   qdrant:
+      image: qdrant/qdrant:v1.15.1
+      restart: unless-stopped
+      ports:
+         - 6333:6333
+         - 6334:6334
+      volumes:
+         - qdrantdata:/qdrant/storage
+
+   neo4j:
+      image: neo4j:5.26
+      restart: unless-stopped
+      ports:
+         - 7474:7474
+         - 7687:7687
+      environment:
+         - NEO4J_AUTH=neo4j/neo4jpassword
+         - NEO4J_PLUGINS=["apoc"]
+      volumes:
+         - neo4jdata:/data
+
+   prometheus:
+      image: prom/prometheus:v3.5.4
+      container_name: prometheus
+      restart: unless-stopped
+      ports:
+         - "9090:9090"
+      volumes:
+         - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+         - ./monitoring/prometheus/web-config.yml:/etc/prometheus/web-config.yml:ro
+         - ./monitoring/data/prometheus:/prometheus
+      command:
+         - --storage.tsdb.retention.time=30d
+         - --storage.tsdb.retention.size=5GB
+         - --web.config.file=/etc/prometheus/web-config.yml
+         - --config.file=/etc/prometheus/prometheus.yml
+
+   grafana:
+      image: grafana/grafana:11.3.0
+      container_name: grafana
+      restart: unless-stopped
+      ports:
+         - "3030:3000"
+      volumes:
+         - ./monitoring/data/grafana:/var/lib/grafana
+         - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+         - ./monitoring/grafana/dashboards:/etc/grafana/dashboards:ro
+      environment:
+         PROM_PASSWORD: ${PROM_PASSWORD}
+         GF_SECURITY_ADMIN_USER: ${GF_ADMIN_USER}
+         GF_SECURITY_ADMIN_PASSWORD: ${GF_ADMIN_PASSWORD}
+         GF_USERS_ALLOW_SIGN_UP: "false"
+         GF_SERVER_ROOT_URL: "http://localhost:3000/"
+         GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      healthcheck:
+         test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+         interval: 30s
+         timeout: 5s
+         retries: 3
+
+   dcgm:
+      image: nvidia/dcgm-exporter:latest
+      container_name: dcgm-exporter
+      restart: unless-stopped
+      runtime: nvidia
+      cap_add:
+         - SYS_ADMIN
+      ports:
+         - "9400:9400"
+
+   llm:
+      image: vllm/vllm-openai:v0.19.1
+      container_name: Qwen3.5-9B
+      restart: unless-stopped
+      shm_size: "16gb"
+      environment:
+         - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+         - VLLM_RPC_TIMEOUT=300
+      ports:
+         - "8387:8000"
+      deploy:
+         resources:
+            reservations:
+               devices:
+                  - driver: nvidia
+                    # Choose device pair with high-speed interconnect (e.g., NVLink) for optimal performance
+                    device_ids: ["1", "2"]
+                    capabilities: [gpu]
+      volumes:
+         - ./models:/root/.cache/huggingface
+      command:
+         - --model=Qwen/Qwen3.5-9B
+         - --api-key=${MODEL_API_KEY}
+         - --enable-auto-tool-choice
+         - --tool-call-parser=qwen3_xml
+         - --reasoning-parser=qwen3
+         - --tensor-parallel-size=2
+         - --gpu-memory-utilization=0.90
+         - --max-model-len=16384
+         - --max-num-seqs=256
+         - --enable-prefix-caching
+         - --default-chat-template-kwargs={"enable_thinking":false}
+         - --override-generation-config={"temperature":0.3,"top_p":0.8,"min_p":0.05,"repetition_penalty":1.05}
+         - --dtype=float16
+
+   typhoon:
+      image: vllm/vllm-openai:v0.19.1
+      container_name: typhoon-ocr-2b
+      restart: unless-stopped
+      environment:
+         - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+         - VLLM_RPC_TIMEOUT=300
+      ports:
+         - "8388:8000"
+      deploy:
+         resources:
+            reservations:
+               devices:
+                  - driver: nvidia
+                    device_ids: ["0"]
+                    capabilities: [gpu]
+      volumes:
+         - ./models:/root/.cache/huggingface
+      command:
+         - --model=typhoon-ai/typhoon-ocr1.5-2b
+         - --max-model-len=49152
+         - --gpu-memory-utilization=0.9
+         - --api-key=${MODEL_API_KEY}
+         - --dtype=float16
+  
+   tei-embedding:
+      image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9
+      container_name: tms-bge-m3
+      restart: unless-stopped
+      environment:
+         - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+         - HUGGINGFACE_HUB_CACHE=/data/hub
+      ports:
+         - "8386:80"
+      volumes:
+         - ./models:/data
+      command:
+         - --model-id=BAAI/bge-m3
+         - --auto-truncate
+         - --tokenization-workers=8
+
+   tei-reranker:
+      image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9
+      container_name: tms-bge-reranker
+      restart: unless-stopped
+      environment:
+         - HUGGINGFACE_HUB_CACHE=/data/hub
+      ports:
+         - "8385:80"
+      volumes:
+         - ./models:/data
+      command:
+         - --model-id=BAAI/bge-reranker-v2-m3
+         - --auto-truncate
+         - --tokenization-workers=8
+
+volumes:
+   pgdata:
+   qdrantdata:
+   neo4jdata:

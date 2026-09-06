@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Widget Demo</title>
+
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+            font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+            background: #f8f9fa;
+            color: #495057;
+        }
+
+        main {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #212529;
+        }
+
+        p {
+            margin: 0;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+
+<body>
+    <main>
+        <h1>Chat Widget Demo</h1>
+        <p>Widget demo — open the chat head in the corner.</p>
+    </main>
+
+    <!-- Chat Widget scripts -->
+    <script type="module" src="./widget.js"></script>
+    <script type="module">
+        widgets.createChat();
+    </script>
+</body>
+
+</html>

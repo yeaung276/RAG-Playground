@@ -1,0 +1,98 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, Helvetica, Arial, sans-serif;
+}
+
+body {
+  font-family: var(--font-sans);
+}
+
+/* Toast entrance: slide up + fade in. */
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(0.5rem); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.toast-in { animation: toast-in 0.18s ease-out; }
+
+/* Rendered OCR/extraction markdown. No typography plugin, so style the basics. */
+.markdown {
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: #334155; /* slate-700 */
+  word-break: break-word;
+}
+.markdown > :first-child { margin-top: 0; }
+.markdown h1, .markdown h2, .markdown h3, .markdown h4 {
+  font-weight: 600;
+  color: #0f172a; /* slate-900 */
+  line-height: 1.3;
+  margin: 1.2em 0 0.5em;
+}
+.markdown h1 { font-size: 1.25rem; }
+.markdown h2 { font-size: 1.1rem; }
+.markdown h3 { font-size: 1rem; }
+.markdown p { margin: 0.6em 0; }
+.markdown ul, .markdown ol { margin: 0.6em 0; padding-left: 1.4em; }
+.markdown ul { list-style: disc; }
+.markdown ol { list-style: decimal; }
+.markdown a { color: #4f46e5; text-decoration: underline; }
+.markdown code {
+  background: #f1f5f9; /* slate-100 */
+  padding: 0.1em 0.35em;
+  border-radius: 0.25rem;
+  font-size: 0.85em;
+}
+.markdown pre {
+  background: #f1f5f9;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+}
+.markdown pre code { background: none; padding: 0; }
+.markdown blockquote {
+  border-left: 3px solid #e2e8f0;
+  padding-left: 0.8em;
+  color: #64748b;
+  margin: 0.6em 0;
+}
+.markdown table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.8em 0;
+  font-size: 0.82rem;
+  display: block;
+  overflow-x: auto;
+}
+.markdown th, .markdown td {
+  border: 1px solid #e2e8f0;
+  padding: 0.4em 0.6em;
+  text-align: left;
+  vertical-align: top;
+}
+.markdown th { background: #f8fafc; font-weight: 600; }
+.markdown figure {
+  margin: 0.8em 0;
+  padding: 0.6em 0.8em;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 0.5rem;
+  font-style: italic;
+  color: #475569;
+}
+.markdown img { max-width: 100%; height: auto; }
+.markdown hr { border: none; border-top: 1px solid #e2e8f0; margin: 1em 0; }
+
+/* Chunk hover highlight: the box-shadow spread bridges inter-block margins so
+   a multi-block chunk reads as one continuous highlighted region. */
+.markdown [data-chunk] {
+  border-radius: 0.25rem;
+  transition: background-color 0.12s ease, box-shadow 0.12s ease;
+}
+.markdown .chunk-hl {
+  background-color: rgba(79, 70, 229, 0.16); /* indigo-600 */
+  /* Spread bridges the inter-block margins so a multi-block chunk reads as one
+     continuous band instead of separate boxes. */
+  box-shadow: 0 0 0 6px rgba(79, 70, 229, 0.16);
+}
