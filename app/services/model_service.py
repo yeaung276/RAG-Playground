@@ -31,10 +31,10 @@ class ModelService:
             capability=payload.capability,
         )
         self.session.add(model)
-        await self.session.flush()
-        if payload.api_key:
-            model.api_key_ct, model.api_key_dek = encrypt_secret(payload.api_key, model.id)
         try:
+            await self.session.flush()
+            if payload.api_key:
+                model.api_key_ct, model.api_key_dek = encrypt_secret(payload.api_key, model.id)
             await self.session.commit()
         except IntegrityError:
             await self.session.rollback()

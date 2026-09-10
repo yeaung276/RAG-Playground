@@ -1,13 +1,13 @@
-import { Bot, Crown, GitBranch, Network, Plus, Trash2, Users, Wrench } from 'lucide-react';
+import { Bot, Crown, GitBranch, Plus, Trash2, Users, Wrench } from 'lucide-react';
 
 // Roster + routing panel. Topology is derived from the agent count — never chosen.
 
 type RosterAgent = {
   id: string;
   name: string;
-  role: 'manager' | 'subagent';
-  tools: { enabled: boolean }[];
-  handoffs: { id: string; targetId: string; }[];
+  isEntrypoint: boolean;
+  enabledToolCount: number;
+  handoffCount: number;
 };
 
 interface Props {
@@ -16,6 +16,7 @@ interface Props {
   onSelect: (id: string) => void;
   onAdd: () => void;
   onRemove: (id: string) => void;
+  onSetEntrypoint: (id: string) => void;
 }
 
 export default function AgentTopology({
@@ -24,9 +25,9 @@ export default function AgentTopology({
   onSelect,
   onAdd,
   onRemove,
+  onSetEntrypoint,
 }: Props) {
   const swarm = agents.length > 1;
-  const manager = agents.find((a) => a.role === 'manager');
 
   return (
     <aside className="flex w-72 shrink-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
@@ -38,7 +39,7 @@ export default function AgentTopology({
           <span
             title={
               swarm
-                ? 'Swarm: the manager receives every message and hands off to specialists.'
+                ? 'Swarm: the entrypoint receives every message and hands off to specialists.'
                 : 'Single: one agent answers everything. Add an agent and it becomes a swarm.'
             }
             className="flex shrink-0 items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500"
@@ -77,39 +78,51 @@ export default function AgentTopology({
               <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800">
                 {a.name || 'Untitled agent'}
               </span>
-              {a.role === 'manager' ? (
+              {a.isEntrypoint ? (
                 <span
-                  title="Manager — the entry point for every message"
+                  title="Entrypoint — every message starts here"
                   className="flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700"
                 >
-                  <Crown size={10} /> Manager
+                  <Crown size={10} /> Entrypoint
                 </span>
               ) : (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onRemove(a.id);
-                  }}
-                  title="Remove agent"
-                  className="shrink-0 rounded p-0.5 text-slate-300 opacity-0 transition hover:bg-red-50 hover:text-red-600 group-hover:opacity-100"
-                >
-                  <Trash2 size={13} />
-                </button>
+                <div className="flex shrink-0 gap-0.5 opacity-0 transition group-hover:opacity-100">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSetEntrypoint(a.id);
+                    }}
+                    title="Make this the entrypoint"
+                    className="rounded p-0.5 text-slate-300 transition hover:bg-amber-50 hover:text-amber-600"
+                  >
+                    <Crown size={13} />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRemove(a.id);
+                    }}
+                    title="Remove agent"
+                    className="rounded p-0.5 text-slate-300 transition hover:bg-red-50 hover:text-red-600"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
               )}
             </div>
             <div className="mt-1.5 flex flex-wrap gap-1">
               <span
-                title={`${a.tools.filter((t) => t.enabled).length} enabled tools`}
+                title={`${a.enabledToolCount} enabled tools`}
                 className="flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500"
               >
-                <Wrench size={10} /> {a.tools.filter((t) => t.enabled).length}
+                <Wrench size={10} /> {a.enabledToolCount}
               </span>
-              {a.role === 'manager' && swarm && (
+              {a.handoffCount > 0 && (
                 <span
-                  title={`${a.handoffs.length} handoffs`}
+                  title={`${a.handoffCount} handoffs`}
                   className="flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500"
                 >
-                  <GitBranch size={10} /> {a.handoffs.length}
+                  <GitBranch size={10} /> {a.handoffCount}
                 </span>
               )}
             </div>
@@ -117,21 +130,6 @@ export default function AgentTopology({
         ))}
       </div>
 
-      {swarm && manager && (
-        <div className="border-t border-slate-200 px-4 py-3">
-          <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
-            <Network size={12} /> Routing
-          </p>
-          {manager.handoffs.map((h) => (
-            <p key={h.id} className="truncate font-mono text-[10px] text-slate-500">
-              {manager.name} → {agents.find((t) => t.id === h.targetId)?.name ?? '(none)'}
-            </p>
-          ))}
-          {manager.handoffs.length === 0 && (
-            <p className="text-[10px] text-slate-400">No handoffs defined.</p>
-          )}
-        </div>
-      )}
     </aside>
   );
 }

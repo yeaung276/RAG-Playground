@@ -61,7 +61,7 @@ export default function NewKbModal({ open, onOpenChange, onSubmit }: Props) {
         >
           <div className="mb-4 flex items-center justify-between">
             <Dialog.Title className="text-base font-semibold text-slate-900">
-              New knowledge base
+              New knowledge
             </Dialog.Title>
             <Dialog.Close className="text-slate-400 hover:text-slate-600">
               <X size={18} />

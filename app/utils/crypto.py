@@ -30,10 +30,13 @@ def _unseal(key: AESGCM, blob: bytes, aad: bytes | None = None) -> bytes:
     return key.decrypt(blob[:NONCE_BYTES], blob[NONCE_BYTES:], aad)
 
 
-def encrypt_secret(secret: str, aad: str) -> tuple[bytes, bytes]:
-    """Return (ciphertext, KEK-wrapped DEK) for a secret bound to `aad`."""
-    dek = os.urandom(32)
-    return _seal(AESGCM(dek), secret.encode(), aad.encode()), _seal(_kek(), dek)
+def encrypt_secret(
+    secret: str, aad: str, wrapped_dek: bytes | None = None
+) -> tuple[bytes, bytes]:
+    """Return (ciphertext, KEK-wrapped DEK) for a secret bound to `aad`.
+    Pass `wrapped_dek` to seal under a key the row already owns."""
+    wrapped = wrapped_dek or _seal(_kek(), os.urandom(32))
+    return _seal(AESGCM(_unseal(_kek(), wrapped)), secret.encode(), aad.encode()), wrapped
 
 
 def decrypt_secret(ciphertext: bytes, wrapped_dek: bytes, aad: str) -> str:

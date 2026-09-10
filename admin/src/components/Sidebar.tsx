@@ -5,7 +5,7 @@ import { useLogout, useMe } from '../api/auth';
 const items = [
   { to: '/control', label: 'Control Panel', icon: SlidersHorizontal },
   { to: '/agents', label: 'Agents', icon: Bot },
-  { to: '/knowledge', label: 'Knowledge Base', icon: BookOpen },
+  { to: '/knowledge', label: 'Knowledge', icon: BookOpen },
   { to: '/models', label: 'Models', icon: Boxes },
   { to: '/docs', label: 'Docs', icon: FileText },
 ];

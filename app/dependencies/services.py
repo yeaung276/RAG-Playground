@@ -1,7 +1,8 @@
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.generation.generation_service import GenerationService
+from app.services.agents.agent_service import AgentService
+from app.services.agents.generation_service import GenerationService
 from app.services.chat.session_service import SessionService
 from app.services.chat.message_service import MessageService
 from app.services.realtime import Publisher, PubSub
@@ -59,6 +60,10 @@ def get_kb_service(
 
 def get_model_service(session: AsyncSession = Depends(get_session)) -> ModelService:
     return ModelService(session)
+
+
+def get_agent_service(session: AsyncSession = Depends(get_session)) -> AgentService:
+    return AgentService(session)
 
 
 def get_admin_service(session: AsyncSession = Depends(get_session)) -> AdminService:

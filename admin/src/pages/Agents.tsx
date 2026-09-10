@@ -1,207 +1,171 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Bot } from 'lucide-react';
 import AgentGeneral from '../components/AgentGeneral';
 import AgentHandoffs from '../components/AgentHandoffs';
+import AgentRuntime from '../components/AgentRuntime';
 import AgentTools from '../components/AgentTools';
 import AgentTopology from '../components/AgentTopology';
 import Header from '../components/Header';
 import NamePromptModal from '../components/NamePromptModal';
 import { pushToast } from '../components/Toast';
-import { uid, type Agent } from '../types/agent';
+import {
+  useAgent,
+  useAgents,
+  useCreateAgent,
+  useDeleteAgent,
+  useSetEntrypoint,
+  useUpdateAgent,
+  type Agent as ApiAgent,
+  type AgentPatch,
+} from '../api/agents';
+import { errorMessage } from '../api/client';
+import { uid, type Agent, type Param, type Tool } from '../types/agent';
 
-// Agent management screen. Everything is local state — nothing hits the backend.
+// The roster on the left is server state; the tabs on the right edit a draft of
+// the selected agent, sent as one PATCH on save.
 
 const TABS = [
   { id: 'general', label: 'General' },
+  { id: 'runtime', label: 'Runtime' },
   { id: 'tools', label: 'Tools' },
   { id: 'handoffs', label: 'Handoffs' },
 ] as const;
 type Tab = (typeof TABS)[number]['id'];
 
-const SEED: Agent[] = [
-  {
-    id: 'ag_triage',
-    name: 'Triage Manager',
-    role: 'manager',
-    description: 'Front door. Classifies the request and routes to a specialist.',
-    temperature: 0.2,
-    maxTokens: 1024,
-    prompt:
-      'You are the triage manager for the Treasury help desk. Decide which specialist should handle the message and hand off immediately. Reply in the language the customer used.',
-    kbId: '',
-    handoffs: [
-      {
-        id: uid(),
-        targetId: 'ag_land',
-        description: 'Land appraisal prices, title deeds, property valuation.',
-      },
-      {
-        id: uid(),
-        targetId: 'ag_coin',
-        description: 'Commemorative coin orders, exchange counters, catalogue lookups.',
-      },
-    ],
-    tools: [],
-  },
-  {
-    id: 'ag_land',
-    name: 'Land Appraisal Agent',
-    role: 'subagent',
-    description: 'Answers appraisal-price questions and looks up deeds.',
-    temperature: 0.1,
-    maxTokens: 2048,
-    prompt:
-      'You are a land appraisal specialist. Use lookup_appraisal_price for any real figure — never guess a price. Quote the appraisal round with every number.',
-    kbId: 'kb_land',
-    handoffs: [],
-    tools: [
-      {
-        id: uid(),
-        name: 'lookup_appraisal_price',
-        description: 'Look up the official appraisal price for a title deed.',
-        enabled: true,
-        method: 'GET',
-        url: 'https://api.treasury.example.com/v1/appraisal/{{deed_no}}',
-        headers: [{ id: uid(), key: 'Accept', value: 'application/json' }],
-        query: [{ id: uid(), key: 'province', value: '{{province}}' }],
-        body: '',
-        auth: 'bearer',
-        authToken: 'demo-token',
-        authHeader: '',
-        authUser: '',
-        authPass: '',
-        timeoutMs: 8000,
-        params: [
-          {
-            id: uid(),
-            name: 'deed_no',
-            type: 'string',
-            required: true,
-            description: 'Title deed number, digits only.',
-          },
-          {
-            id: uid(),
-            name: 'province',
-            type: 'string',
-            required: true,
-            description: 'Province name in English.',
-          },
-        ],
-      },
-    ],
-  },
-  {
-    id: 'ag_coin',
-    name: 'Coin Exchange Agent',
-    role: 'subagent',
-    description: 'Handles coin orders and exchange-counter questions.',
-    temperature: 0.3,
-    maxTokens: 1536,
-    prompt:
-      'You are a commemorative coin specialist. Check stock before promising availability, and place an order only after the customer confirms quantity and pickup branch.',
-    kbId: 'kb_coins',
-    handoffs: [],
-    tools: [
-      {
-        id: uid(),
-        name: 'place_coin_order',
-        description: 'Reserve coins for pickup. Only call after the customer confirms.',
-        enabled: false,
-        method: 'POST',
-        url: 'https://api.treasury.example.com/v1/coins/orders',
-        headers: [{ id: uid(), key: 'Content-Type', value: 'application/json' }],
-        query: [],
-        body: '{\n  "coinId": "{{coin_id}}",\n  "quantity": {{quantity}}\n}',
-        auth: 'header',
-        authToken: 'demo-key',
-        authHeader: 'X-Api-Key',
-        authUser: '',
-        authPass: '',
-        timeoutMs: 10000,
-        params: [
-          {
-            id: uid(),
-            name: 'coin_id',
-            type: 'string',
-            required: true,
-            description: 'Catalogue id of the coin.',
-          },
-          {
-            id: uid(),
-            name: 'quantity',
-            type: 'number',
-            required: true,
-            description: 'How many coins to reserve.',
-          },
-        ],
-      },
-    ],
-  },
-];
+function toDraft(a: ApiAgent): Agent {
+  return {
+    id: a.id,
+    name: a.name,
+    description: a.description,
+    instruction: a.instruction,
+    modelId: a.modelId,
+    temperature: a.temperature,
+    knowledgeId: a.knowledgeId,
+    maxStep: a.maxStep,
+    isEntrypoint: a.isEntrypoint,
+    handoffMode: a.handoff.mode,
+    handoffs: a.handoff.targets.map((t) => ({
+      id: t.id ?? uid(),
+      targetId: t.agentId,
+      description: t.description,
+    })),
+    tools: a.tools.map((t) => ({
+      ...t,
+      id: t.id ?? uid(),
+      method: t.method as Tool['method'],
+      headers: t.headers.map((h) => ({ ...h, id: h.id ?? uid() })),
+      query: t.query.map((q) => ({ ...q, id: q.id ?? uid() })),
+      params: t.params.map((p) => ({ ...p, id: p.id ?? uid(), type: p.type as Param['type'] })),
+      authToken: '',
+      saved: true,
+    })),
+  };
+}
+
+/** A blank `authToken` means "keep the stored one", so it is left off the wire. */
+function toPatch(d: Agent): AgentPatch {
+  return {
+    description: d.description,
+    instruction: d.instruction,
+    modelId: d.modelId,
+    temperature: d.temperature,
+    knowledgeId: d.knowledgeId,
+    maxStep: d.maxStep,
+    handoff: {
+      mode: d.handoffMode,
+      targets: d.handoffs.map((h) => ({
+        id: h.id,
+        agentId: h.targetId,
+        description: h.description,
+      })),
+    },
+    tools: d.tools.map(({ hasAuthToken, saved, authToken, ...rest }) => ({
+      ...rest,
+      ...(authToken ? { authToken } : {}),
+    })),
+  };
+}
 
 export default function Agents() {
-  const [agents, setAgents] = useState<Agent[]>(SEED);
-  const [selectedId, setSelectedId] = useState('ag_triage');
+  const { data: roster = [], isLoading, error } = useAgents();
+  const createAgent = useCreateAgent();
+  const deleteAgent = useDeleteAgent();
+  const setEntrypoint = useSetEntrypoint();
+  const updateAgent = useUpdateAgent();
+
+  const [selectedId, setSelectedId] = useState('');
   const [tab, setTab] = useState<Tab>('general');
   const [naming, setNaming] = useState(false);
-  const [snapshot, setSnapshot] = useState(() => JSON.stringify(SEED));
+  const [draft, setDraft] = useState<Agent | null>(null);
 
-  const dirty = JSON.stringify(agents) !== snapshot;
-  const agent = agents.find((a) => a.id === selectedId) ?? agents[0];
-  const isManager = agent?.role === 'manager';
-  const others = agents.filter((a) => a.id !== agent?.id);
+  // The roster carries counts only, so the selected agent is fetched in full.
+  const currentId = roster.find((a) => a.id === selectedId)?.id ?? roster[0]?.id ?? '';
+  const { data: selected, isLoading: loadingAgent } = useAgent(currentId);
 
-  // Subagents have no handoffs tab, so fall back rather than show an empty pane.
-  const activeTab: Tab = tab === 'handoffs' && !isManager ? 'general' : tab;
+  // Re-seed the draft whenever the selection changes or the row is refetched.
+  useEffect(() => {
+    setDraft(selected ? toDraft(selected) : null);
+  }, [selected?.id, selected?.updatedAt]);
 
-  // Patch the selected agent.
+  const agent = draft;
+  const others = roster.filter((a) => a.id !== currentId);
+  const dirty = !!selected && !!agent && JSON.stringify(agent) !== JSON.stringify(toDraft(selected));
+
+  const activeTab: Tab = tab;
+
+  // Patch the local draft of the selected agent.
   function edit(patch: Partial<Agent>) {
-    setAgents((prev) => prev.map((a) => (a.id === agent.id ? { ...a, ...patch } : a)));
+    setDraft((prev) => (prev ? { ...prev, ...patch } : prev));
   }
 
   function addAgent(name: string) {
-    const id = `ag_${uid()}`;
-    setAgents((prev) => [
-      ...prev,
+    createAgent.mutate(
+      { name },
       {
-        id,
-        name,
-        role: 'subagent',
-        description: '',
-        temperature: 0.2,
-        maxTokens: 1024,
-        prompt: '',
-        kbId: '',
-        handoffs: [],
-        tools: [],
+        onSuccess: (created) => setSelectedId(created.id),
+        onError: (err) => pushToast(errorMessage(err)),
       },
-    ]);
-    setSelectedId(id);
+    );
   }
 
   function removeAgent(id: string) {
-    const left = agents
-      .filter((a) => a.id !== id)
-      .map((a) => ({ ...a, handoffs: a.handoffs.filter((h) => h.targetId !== id) }));
-    setAgents(left);
-    if (selectedId === id) setSelectedId(left[0]?.id ?? '');
+    deleteAgent.mutate(id, {
+      onSuccess: () => {
+        if (selectedId === id) setSelectedId('');
+      },
+      onError: (err) => pushToast(errorMessage(err)),
+    });
+  }
+
+  function promote(id: string) {
+    setEntrypoint.mutate(id, {
+      onSuccess: (a) => pushToast(`${a.name} is now the entrypoint.`, 'success'),
+      onError: (err) => pushToast(errorMessage(err)),
+    });
   }
 
   function save() {
-    if (!agents.every((a) => a.name.trim())) {
-      pushToast('Every agent needs a name.');
-      return;
-    }
-    if (agents.some((a) => a.tools.some((t) => !t.name.trim()))) {
+    if (!agent) return;
+    if (agent.tools.some((t) => !t.name.trim())) {
       pushToast('Every tool needs a name.');
       return;
     }
-    setSnapshot(JSON.stringify(agents));
-    pushToast('Saved locally — this screen is a mock.', 'success');
+    const names = agent.tools.map((t) => t.name.trim());
+    if (new Set(names).size !== names.length) {
+      pushToast('Tool names must be unique — they are the key the server saves against.');
+      return;
+    }
+    updateAgent.mutate(
+      { id: agent.id, patch: toPatch(agent) },
+      {
+        onSuccess: () => pushToast('Agent saved.', 'success'),
+        onError: (err) => pushToast(errorMessage(err)),
+      },
+    );
   }
 
   function reset() {
-    setAgents(JSON.parse(snapshot));
+    setDraft(selected ? toDraft(selected) : null);
   }
 
   return (
@@ -213,22 +177,27 @@ export default function Agents() {
 
       <div className="flex min-h-0 flex-1 gap-5 px-6 py-5">
         <AgentTopology
-          agents={agents}
-          selectedId={agent?.id ?? ''}
+          agents={roster}
+          selectedId={currentId}
           onSelect={setSelectedId}
           onAdd={() => setNaming(true)}
           onRemove={removeAgent}
+          onSetEntrypoint={promote}
         />
 
         <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
-          {!agent ? (
+          {isLoading || loadingAgent || error || !agent ? (
             <div className="flex flex-1 items-center justify-center text-sm text-slate-400">
-              No agents. Add one to get started.
+              {isLoading || loadingAgent
+                ? 'Loading agents…'
+                : error
+                  ? errorMessage(error)
+                  : 'No agents. Add one to get started.'}
             </div>
           ) : (
             <>
               <div className="flex gap-1 border-b border-slate-200 px-6 pt-1">
-                {TABS.filter((t) => t.id !== 'handoffs' || isManager).map((t) => (
+                {TABS.map((t) => (
                   <button
                     key={t.id}
                     onClick={() => setTab(t.id)}
@@ -245,8 +214,9 @@ export default function Agents() {
 
               <div className="min-h-0 flex-1 overflow-auto px-6 py-5">
                 {activeTab === 'general' && <AgentGeneral agent={agent} onEdit={edit} />}
+                {activeTab === 'runtime' && <AgentRuntime agent={agent} onEdit={edit} />}
                 {activeTab === 'tools' && <AgentTools agent={agent} onEdit={edit} />}
-                {activeTab === 'handoffs' && isManager && (
+                {activeTab === 'handoffs' && (
                   <AgentHandoffs agent={agent} others={others} onEdit={edit} />
                 )}
               </div>
@@ -265,10 +235,10 @@ export default function Agents() {
                   </button>
                   <button
                     onClick={save}
-                    disabled={!dirty}
+                    disabled={!dirty || updateAgent.isPending}
                     className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    Save changes
+                    {updateAgent.isPending ? 'Saving…' : 'Save changes'}
                   </button>
                 </div>
               </div>

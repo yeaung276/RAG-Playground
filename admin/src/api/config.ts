@@ -8,7 +8,7 @@ export const EMBEDDING_MODELS = [
 ] as const;
 
 /**
- * Single source of truth for a knowledge base's chunking / embedding config.
+ * Single source of truth for a knowledge's chunking / embedding config.
  * Used to validate both the new-base modal and the config page, and mirrors
  * the server-side pydantic KnowledgeBaseConfig.
  */

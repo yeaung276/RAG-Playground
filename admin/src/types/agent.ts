@@ -25,19 +25,25 @@ export type Tool = {
   authPass: string;
   timeoutMs: number;
   params: Param[];
+  hasAuthToken: boolean;
+  saved: boolean;
 };
+
+export type HandoffMode = 'none' | 'auto' | 'manual';
 
 export type Handoff = { id: string; targetId: string; description: string };
 
 export type Agent = {
   id: string;
   name: string;
-  role: 'manager' | 'subagent';
   description: string;
+  instruction: string;
+  modelId: string | null;
   temperature: number;
-  maxTokens: number;
-  prompt: string;
-  kbId: string;
+  knowledgeId: string | null;
+  maxStep: number;
+  isEntrypoint: boolean;
+  handoffMode: HandoffMode;
   handoffs: Handoff[];
   tools: Tool[];
 };

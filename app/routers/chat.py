@@ -5,7 +5,7 @@ from app.db.session import async_session_maker
 from app.services.admin.priority_service import PriorityService
 from app.services.chat.message_service import MessageService
 from app.services.chat.session_service import SessionService
-from app.services.generation.generation_service import GenerationService
+from app.services.agents.generation_service import GenerationService
 from app.dependencies.services import (
     get_generation_service,
     get_message_service,

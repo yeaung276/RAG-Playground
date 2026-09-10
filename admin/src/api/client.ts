@@ -32,7 +32,7 @@ interface RequestOptions {
   body?: BodyInit;
 }
 
-/** Thin fetch wrapper over the knowledge base, returning parsed JSON. */
+/** Thin fetch wrapper over knowledge, returning parsed JSON. */
 export function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   return requestAt<T>(`${BASE}${path}`, opts);
 }

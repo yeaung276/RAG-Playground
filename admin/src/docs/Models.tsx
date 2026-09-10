@@ -8,7 +8,7 @@ import {
 import { C, H2, Note, P, Table } from './prose';
 
 const CAPABILITY_NOTES: Record<Capability, string> = {
-  'bi-encoder': 'Encodes text into a vector. Indexes a knowledge base and embeds queries.',
+  'bi-encoder': 'Encodes text into a vector. Indexes knowledge and embeds queries.',
   'cross-encoder': 'Scores a query against each candidate chunk, to reorder retrieval results.',
   decoder: 'Generates text. Used by agents to answer and to call tools.',
 };
@@ -47,7 +47,7 @@ export default function Models() {
         <Link to="/models" className="font-medium text-indigo-600 hover:text-indigo-700">
           Models
         </Link>{' '}
-        page and it becomes selectable wherever a model is needed — knowledge base indexing,
+        page and it becomes selectable wherever a model is needed — knowledge indexing,
         reranking, and agents.
       </P>
 

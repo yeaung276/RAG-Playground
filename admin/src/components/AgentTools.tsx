@@ -10,6 +10,8 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
+import { useTestTool } from '../api/agents';
+import { errorMessage } from '../api/client';
 import { uid, type Agent, type Param, type Tool } from '../types/agent';
 
 interface Props {
@@ -21,38 +23,55 @@ export default function AgentTools({ agent, onEdit }: Props) {
   const [openToolId, setOpenToolId] = useState<string | null>(null);
   const [testing, setTesting] = useState<string | null>(null);
   const [results, setResults] = useState<Record<string, string>>({});
+  // Param values live only in this panel — they are test input, not config.
+  const [values, setValues] = useState<Record<string, Record<string, string>>>({});
+  const testTool_ = useTestTool();
 
   function editTool(toolId: string, patch: Partial<Tool>) {
     onEdit({ tools: agent.tools.map((t) => (t.id === toolId ? { ...t, ...patch } : t)) });
   }
 
-  // Fake request: reports back the shape that would have been sent.
+  // After a reload the token field is blank because the token itself stays on
+  // the server, so report where the credential would come from, not its value.
+  function credentialSource(t: Tool): string {
+    if (t.auth === 'none') return 'none';
+    if (t.auth === 'basic') return t.authPass ? 'from this form' : 'not set';
+    if (t.authToken) return 'from this form';
+    return t.hasAuthToken ? 'stored on the server' : 'not set';
+  }
+
+  // Sends the tool as edited — the server runs it, saved or not, and falls back
+  // to the stored token when the field is blank.
   function testTool(t: Tool) {
     setTesting(t.id);
     setResults((r) => ({ ...r, [t.id]: '' }));
-    setTimeout(() => {
-      setTesting(null);
-      setResults((r) => ({
-        ...r,
-        [t.id]: JSON.stringify(
-          {
-            sent: {
-              method: t.method,
-              url: t.url,
-              query: Object.fromEntries(t.query.map((q) => [q.key, q.value])),
-              headers: Object.fromEntries(t.headers.map((h) => [h.key, h.value])),
-              auth: t.auth,
-              body: t.body || null,
-            },
-            status: 200,
-            elapsedMs: 128,
-            body: { mock: true, note: 'Stubbed — no request left the browser.' },
-          },
-          null,
-          2,
-        ),
-      }));
-    }, 500);
+    const { id, hasAuthToken, saved, authToken, ...rest } = t;
+    testTool_.mutate(
+      {
+        agentId: agent.id,
+        tool: { ...rest, ...(authToken ? { authToken } : {}) },
+        params: values[t.id] ?? {},
+      },
+      {
+        onSuccess: (res) =>
+          setResults((r) => ({
+            ...r,
+            [t.id]: JSON.stringify(
+              {
+                sent: { ...res.request, credential: credentialSource(t) },
+                status: res.status,
+                elapsedMs: res.elapsedMs,
+                error: res.error,
+                body: res.body,
+              },
+              null,
+              2,
+            ),
+          })),
+        onError: (err) => setResults((r) => ({ ...r, [t.id]: errorMessage(err) })),
+        onSettled: () => setTesting(null),
+      },
+    );
   }
 
   return (
@@ -91,6 +110,8 @@ export default function AgentTools({ agent, onEdit }: Props) {
                   authPass: '',
                   timeoutMs: 8000,
                   params: [],
+                  hasAuthToken: false,
+                  saved: false,
                 },
               ],
             });
@@ -175,6 +196,9 @@ export default function AgentTools({ agent, onEdit }: Props) {
                   <span className="text-xs font-medium text-slate-500">Tool name</span>
                   <input
                     value={t.name}
+                    readOnly={t.saved}
+                    disabled={t.saved}
+                    title={t.saved ? 'Fixed once saved — delete and re-add to rename' : undefined}
                     onChange={(e) => editTool(t.id, { name: e.target.value })}
                     placeholder="lookup_order"
                     className={`mt-1 w-full rounded-lg border px-3 py-2 font-mono text-sm outline-none focus:ring-1 ${
@@ -406,7 +430,7 @@ export default function AgentTools({ agent, onEdit }: Props) {
                       type="password"
                       value={t.authToken}
                       onChange={(e) => editTool(t.id, { authToken: e.target.value })}
-                      placeholder="Token"
+                      placeholder={t.hasAuthToken ? 'Stored — leave blank to keep' : 'Token'}
                       className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                     />
                   )}
@@ -427,7 +451,7 @@ export default function AgentTools({ agent, onEdit }: Props) {
                         onChange={(e) =>
                           editTool(t.id, { authToken: e.target.value })
                         }
-                        placeholder="Key"
+                        placeholder={t.hasAuthToken ? 'Stored — leave blank to keep' : 'Key'}
                         className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                       />
                     </>
@@ -574,6 +598,29 @@ export default function AgentTools({ agent, onEdit }: Props) {
               </div>
 
               <div className="border-t border-slate-200 pt-3">
+                {t.params.length > 0 && (
+                  <div className="mb-2 space-y-1.5">
+                    <p className="text-[11px] font-medium text-slate-500">Test values</p>
+                    {t.params.map((p) => (
+                      <div key={p.id} className="flex items-center gap-2">
+                        <span className="w-36 shrink-0 truncate font-mono text-[11px] text-slate-500">
+                          {p.name || '(unnamed)'}
+                        </span>
+                        <input
+                          value={values[t.id]?.[p.name] ?? ''}
+                          onChange={(e) =>
+                            setValues((v) => ({
+                              ...v,
+                              [t.id]: { ...v[t.id], [p.name]: e.target.value },
+                            }))
+                          }
+                          placeholder={p.description || p.type}
+                          className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <button
                   onClick={() => testTool(t)}
                   disabled={testing === t.id}
