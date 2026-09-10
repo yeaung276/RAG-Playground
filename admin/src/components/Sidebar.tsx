@@ -1,13 +1,13 @@
 import { NavLink, useNavigate } from 'react-router-dom';
-import { BookOpen, SlidersHorizontal, LogOut } from 'lucide-react';
+import { BookOpen, Bot, Boxes, FileText, SlidersHorizontal, LogOut } from 'lucide-react';
 import { useLogout, useMe } from '../api/auth';
-import { KNOWLEDGE_BASE_ENABLED } from '../features';
 
 const items = [
   { to: '/control', label: 'Control Panel', icon: SlidersHorizontal },
-  ...(KNOWLEDGE_BASE_ENABLED
-    ? [{ to: '/knowledge', label: 'Knowledge Base', icon: BookOpen }]
-    : []),
+  { to: '/agents', label: 'Agents', icon: Bot },
+  { to: '/knowledge', label: 'Knowledge Base', icon: BookOpen },
+  { to: '/models', label: 'Models', icon: Boxes },
+  { to: '/docs', label: 'Docs', icon: FileText },
 ];
 
 export default function Sidebar() {

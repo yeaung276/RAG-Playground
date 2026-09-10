@@ -32,8 +32,13 @@ interface RequestOptions {
   body?: BodyInit;
 }
 
-/** Thin fetch wrapper that returns parsed JSON and throws {@link ApiError}. */
-export async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+/** Thin fetch wrapper over the knowledge base, returning parsed JSON. */
+export function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+  return requestAt<T>(`${BASE}${path}`, opts);
+}
+
+/** Same wrapper for any admin path; throws {@link ApiError} on failure. */
+export async function requestAt<T>(url: string, opts: RequestOptions = {}): Promise<T> {
   const init: RequestInit = { method: opts.method ?? 'GET' };
   if (opts.json !== undefined) {
     init.headers = { 'Content-Type': 'application/json' };
@@ -42,7 +47,7 @@ export async function request<T>(path: string, opts: RequestOptions = {}): Promi
     init.body = opts.body;
   }
 
-  const res = await fetch(`${BASE}${path}`, init);
+  const res = await fetch(url, init);
   if (res.status === 401) {
     if (!window.location.hash.startsWith('#/login')) window.location.hash = '#/login';
   }

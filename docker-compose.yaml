@@ -3,9 +3,7 @@ services:
       platform: linux/amd64
       build:
          context: .
-         dockerfile: build/Dockerfile
-         args:
-            - ENABLE_KNOWLEDGE_BASE=true
+         dockerfile: Dockerfile
       ports:
          - 9997:8000
       environment:
@@ -28,6 +26,7 @@ services:
          - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/chat_gateway
          - QDRANT_URL=http://qdrant:6333
          - QDRANT_API_KEY=
+         - MODEL_KEK=${MODEL_KEK}
       restart: unless-stopped
       depends_on:
          db:

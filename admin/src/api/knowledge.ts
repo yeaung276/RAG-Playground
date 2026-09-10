@@ -11,14 +11,13 @@ import type {
   KnowledgeBaseConfig,
 } from './types';
 
-// Poll cadence while any file is still being extracted.
+
 const POLL_MS = 2000;
 
 /** Query key factory — keeps invalidation call sites in sync. */
 export const keys = {
   kbList: ['knowledge', 'kb'] as const,
   kb: (id: string) => ['knowledge', 'kb', id] as const,
-  // Prefix for a KB's folder listings; a specific folder appends its parent id.
   nodes: (kbId: string) => ['knowledge', 'kb', kbId, 'nodes'] as const,
   file: (kbId: string, nodeId: string) =>
     ['knowledge', 'kb', kbId, 'file', nodeId] as const,
@@ -48,7 +47,6 @@ export function useNodes(kbId: string, parentId: string | null) {
     queryKey: [...keys.nodes(kbId), parentId ?? 'root'],
     queryFn: () => request<FileNode[]>(`/${kbId}/nodes${q}`),
     enabled: !!kbId,
-    // Poll only while a child is still processing; stop once all settle.
     refetchInterval: (query) =>
       query.state.data?.some((n) => n.status === 'processing') ? POLL_MS : false,
   });
@@ -59,7 +57,6 @@ export function useFileDetail(kbId: string, nodeId: string | null) {
     queryKey: keys.file(kbId, nodeId ?? ''),
     queryFn: () => request<FileDetail>(`/${kbId}/files/${nodeId}`),
     enabled: !!kbId && !!nodeId,
-    // Poll only while the file is still processing; stop once it settles.
     refetchInterval: (query) =>
       query.state.data?.status === 'processing' ? POLL_MS : false,
   });
@@ -91,7 +88,6 @@ export function useUpdateKnowledgeBaseConfig() {
     onSuccess: (_data, { kbId }) => {
       qc.invalidateQueries({ queryKey: keys.kb(kbId) });
       qc.invalidateQueries({ queryKey: keys.kbList });
-      // File statuses may have flipped to out_of_sync.
       qc.invalidateQueries({ queryKey: keys.nodes(kbId) });
     },
   });

@@ -33,6 +33,7 @@ dependencies = [
     "einops>=0.8.2",
     "llama-index-llms-ollama>=0.10.1",
     "langchain-openai>=1.6.0",
+    "cryptography>=50.0.1",
 ]
 
 [dependency-groups]

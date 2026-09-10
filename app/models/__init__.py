@@ -4,5 +4,6 @@ from app.models.kb import KnowledgeBase
 from app.models.node import Node
 from app.models.chunk import Chunk
 from app.models.admin import Admin
+from app.models.model import Model
 
-__all__ = ["KnowledgeBase", "Node", "Chunk", "Session", "Message", "Admin"]
+__all__ = ["KnowledgeBase", "Node", "Chunk", "Session", "Message", "Admin", "Model"]

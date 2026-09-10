@@ -1,10 +1,6 @@
 # ---- stage 1: build the admin console (and widget.js, same build) ----
 FROM node:20-slim AS admin-builder
 WORKDIR /build
-# Feature flag baked into the bundle at build time (see docker-compose build.args).
-ARG ENABLE_KNOWLEDGE_BASE=true
-
-ENV VITE_ENABLE_KNOWLEDGE_BASE=$ENABLE_KNOWLEDGE_BASE
 
 COPY admin/package.json admin/yarn.lock ./
 RUN yarn install --frozen-lockfile

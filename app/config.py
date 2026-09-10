@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     
     STORAGE_PATH: str = Field(default=".knowledge/storage")
 
+    # Key-encryption key for stored model API keys: 32 bytes, base64-encoded.
+    MODEL_KEK: str = Field(default="")
+
     @property
     def allowed_origins_list(self) -> list[str]:
         return [o.strip() for o in self.ALLOWED_ORIGINS.split(",") if o.strip()]

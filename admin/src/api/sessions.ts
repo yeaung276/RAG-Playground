@@ -2,9 +2,8 @@ import { useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError } from './client';
 
-/** Which set of sessions to list — maps to the Control Panel tabs. */
-export type SessionScope = 'current' | 'all';
 
+export type SessionScope = 'current' | 'all';
 export type SessionStatus = 'live' | 'away';
 export type SessionPriority = 'urgent' | 'moderate' | 'low';
 
@@ -78,7 +77,6 @@ async function fetchSessions(
   range: DateRange,
 ): Promise<SessionPage> {
   const resource = scope === 'current' ? 'current' : 'history';
-  // ControlPanel pages are 0-indexed; the API is 1-indexed.
   const params = new URLSearchParams({
     page: String(page + 1),
     pageSize: String(pageSize),

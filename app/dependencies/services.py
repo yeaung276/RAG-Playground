@@ -9,6 +9,7 @@ from app.services.hydrator import Hydrator
 from app.services.knowledge.file_service import FileService
 from app.services.knowledge.kb_service import KnowledgeBaseService
 from app.services.admin.admin_service import AdminService
+from app.services.model_service import ModelService
 from app.services.admin.admin_session_service import AdminSessionService
 from app.services.admin.priority_service import PriorityService
 from app.backgrounds.files_processor import FileProcessor
@@ -54,6 +55,10 @@ def get_kb_service(
     session: AsyncSession = Depends(get_session),
 ) -> KnowledgeBaseService:
     return KnowledgeBaseService(session=session, qdrant=qdrant)
+
+
+def get_model_service(session: AsyncSession = Depends(get_session)) -> ModelService:
+    return ModelService(session)
 
 
 def get_admin_service(session: AsyncSession = Depends(get_session)) -> AdminService:

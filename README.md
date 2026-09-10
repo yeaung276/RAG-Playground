@@ -247,19 +247,6 @@ endpoint for the `text-embedding-3-*` index types.
 
 ---
 
-## Feature Flags
-
-| Flag | Default | Description |
-|---|---|---|
-| `ENABLE_KNOWLEDGE_BASE` | `true` | When `false`, hides the Knowledge Base area from the admin console |
-
-This is a **build-time** flag baked into the admin bundle by Vite via
-`VITE_ENABLE_KNOWLEDGE_BASE` (see `admin/src/features.ts`). In Docker it is wired
-through `docker-compose.yaml` `build.args` → `Dockerfile` `ARG`. It only gates the
-frontend; the `/api/admin/knowledge/*` routes are always registered on the backend.
-
----
-
 ## Database
 
 PostgreSQL. Migrations live in `migrations/versions/` and are managed with Alembic via
