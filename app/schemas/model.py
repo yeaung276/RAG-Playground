@@ -16,12 +16,14 @@ class ApiSchema(StrEnum):
     OPENAI = "openai"  # /embeddings, /chat/completions
     TEI = "tei"        # /embed, /rerank
     COHERE = "cohere"  # /rerank, Cohere-style body
+    GEMINI = "gemini"  # /interactions, Gemini-native body
 
 
 VALID_PAIRS: dict[ApiSchema, set[Capability]] = {
     ApiSchema.OPENAI: {Capability.BI_ENCODER, Capability.DECODER},
     ApiSchema.TEI: {Capability.BI_ENCODER, Capability.CROSS_ENCODER},
     ApiSchema.COHERE: {Capability.CROSS_ENCODER},
+    ApiSchema.GEMINI: {Capability.BI_ENCODER, Capability.DECODER},
 }
 
 

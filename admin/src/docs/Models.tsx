@@ -26,6 +26,10 @@ const SCHEMA_NOTES: Record<ApiSchema, { routes: string; note: string }> = {
     routes: '/rerank',
     note: 'The Cohere rerank body, copied by Jina, Infinity and vLLM. There is no OpenAI rerank route, so cross-encoders use this.',
   },
+  gemini: {
+    routes: '/interactions, /models/{name}:embedContent',
+    note: 'The Gemini-native dialect on generativelanguage.googleapis.com. The key goes on the URL as ?key=, and generation settings live under generation_config.',
+  },
 };
 
 const FIELDS: [string, string][] = [

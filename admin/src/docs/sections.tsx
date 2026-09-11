@@ -1,3 +1,4 @@
+import Agents from './Agents';
 import Models from './Models';
 import Widget from './Widget';
 
@@ -5,4 +6,5 @@ import Widget from './Widget';
 export const SECTIONS = [
   { slug: 'widget', label: 'Widget', group: 'Guides', body: Widget },
   { slug: 'models', label: 'Models', group: 'Configuration', body: Models },
+  { slug: 'agents', label: 'Agents', group: 'Configuration', body: Agents },
 ] as const;

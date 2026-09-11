@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Bot } from 'lucide-react';
+import { Bot, FlaskConical } from 'lucide-react';
 import AgentGeneral from '../components/AgentGeneral';
 import AgentHandoffs from '../components/AgentHandoffs';
 import AgentRuntime from '../components/AgentRuntime';
 import AgentTools from '../components/AgentTools';
 import AgentTopology from '../components/AgentTopology';
+import AgentTrace from '../components/AgentTrace';
 import Header from '../components/Header';
+import Modal from '../components/Modal';
 import NamePromptModal from '../components/NamePromptModal';
 import { pushToast } from '../components/Toast';
 import {
@@ -96,6 +98,7 @@ export default function Agents() {
   const [selectedId, setSelectedId] = useState('');
   const [tab, setTab] = useState<Tab>('general');
   const [naming, setNaming] = useState(false);
+  const [testing, setTesting] = useState(false);
   const [draft, setDraft] = useState<Agent | null>(null);
 
   // The roster carries counts only, so the selected agent is fetched in full.
@@ -173,6 +176,14 @@ export default function Agents() {
       <Header>
         <Bot size={18} className="text-indigo-600" />
         <h1 className="truncate text-base font-semibold">Agents</h1>
+        <button
+          onClick={() => setTesting(true)}
+          disabled={!roster.length}
+          className="ml-2 flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <FlaskConical size={15} />
+          Test
+        </button>
       </Header>
 
       <div className="flex min-h-0 flex-1 gap-5 px-6 py-5">
@@ -246,6 +257,16 @@ export default function Agents() {
           )}
         </section>
       </div>
+
+      <Modal
+        open={testing}
+        onOpenChange={setTesting}
+        title="Test run"
+        subtitle={`${roster.find((a) => a.isEntrypoint)?.name ?? 'No entrypoint'} — nothing here is saved`}
+        size="lg"
+      >
+        {testing && <AgentTrace />}
+      </Modal>
 
       <NamePromptModal
         open={naming}

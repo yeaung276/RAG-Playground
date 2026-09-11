@@ -13,7 +13,3 @@ router.include_router(admin.router)
 @router.get("/health")
 async def health():
     return {"status": "ok"}
-
-@router.get("/dev", dependencies=[Depends(dev_only)])
-async def dev_page():
-    return FileResponse("app/templates/demo.html", media_type="text/html")
