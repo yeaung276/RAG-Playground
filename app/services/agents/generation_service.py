@@ -11,6 +11,7 @@ from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, Too
 from langchain_core.tools import BaseTool, InjectedToolCallId, StructuredTool
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.prebuilt import InjectedState
 from langgraph.types import Command
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -183,7 +184,7 @@ class GenerationService:
             model_provider=model.api_schema,
             base_url=model.base_url,
             api_key=api_key,
-            temperature=temperature / 50,
+            temperature=temperature / 100,
         )
         
     async def _create_agent_tools(self, agent: AgentRead) -> list[BaseTool]:
@@ -238,13 +239,17 @@ class GenerationService:
             """Closed over its one target, so the model only chooses which tool
             to call and cannot redirect the handoff."""
 
-            def transfer(tool_call_id: Annotated[str, InjectedToolCallId]) -> Command:
+            def transfer(
+                state: Annotated[AgentState, InjectedState],
+                tool_call_id: Annotated[str, InjectedToolCallId],
+            ) -> Command:
                 return Command(
                     goto=name,
                     graph=Command.PARENT,
                     update={
                         "messages": [
-                            ToolMessage(content=f"Handed off to {name}", tool_call_id=tool_call_id)
+                            state["messages"][-1],
+                            ToolMessage(content=f"Handed off to {name}", tool_call_id=tool_call_id),
                         ]
                     },
                 )

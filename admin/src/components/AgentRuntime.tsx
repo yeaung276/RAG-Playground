@@ -42,19 +42,16 @@ export default function AgentRuntime({ agent, onEdit }: Props) {
               0 is deterministic, 100 is the most varied.
             </p>
           </div>
-          <div className="flex w-64 shrink-0 items-center gap-3">
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={agent.temperature}
-              onChange={(e) => onEdit({ temperature: Number(e.target.value) })}
-              className="min-w-0 flex-1 accent-indigo-600"
-            />
-            <span className="w-8 shrink-0 text-right font-mono text-sm text-slate-600">
-              {agent.temperature}
-            </span>
-          </div>
+          <input
+            type="number"
+            min={0}
+            max={100}
+            value={agent.temperature}
+            onChange={(e) =>
+              onEdit({ temperature: Math.min(100, Math.max(0, Number(e.target.value) || 0)) })
+            }
+            className="w-64 shrink-0 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+          />
         </div>
 
         <div className="flex flex-col gap-3 py-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
