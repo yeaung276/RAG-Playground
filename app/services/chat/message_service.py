@@ -39,7 +39,6 @@ class MessageService:
         session_id: str,
         sender: str,
         content: str | None,
-        has_image: bool = False,
         publish: bool = True,
     ) -> Message:
         message = Message(
@@ -47,7 +46,6 @@ class MessageService:
             session_id=session_id,
             sender=sender,
             content=content,
-            has_image=has_image,
         )
         self._db.add(message)
         await self._db.flush()

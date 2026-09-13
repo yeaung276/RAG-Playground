@@ -32,9 +32,7 @@ async def chat_send(
     sessions: SessionService = Depends(get_session_service),
 ):
     async with MessageService.from_session_maker(async_session_maker) as messages:
-        await messages.create(
-            session_id, request.sender, request.content, request.image_base64 is not None
-        )
+        await messages.create(session_id, request.sender, request.content)
     intercepted = await sessions.is_intercepted(session_id)
 
     async def stream():
@@ -43,9 +41,7 @@ async def chat_send(
             return
 
         reply = []
-        async for frame in generation.stream_reply(
-            request.content, request.image_base64
-        ):
+        async for frame in generation.stream_reply(request.content):
             if isinstance(frame, TokenFrame):
                 reply.append(frame.delta)
             yield f"data: {frame.model_dump_json(by_alias=True)}\n\n"

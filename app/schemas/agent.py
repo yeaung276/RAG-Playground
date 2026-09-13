@@ -1,5 +1,6 @@
 from datetime import datetime
 from enum import StrEnum
+from typing import Any
 
 from pydantic import Field
 
@@ -61,6 +62,11 @@ class ToolRead(ToolBase):
     has_auth_token: bool = False
 
 
+class AgentTestRequest(CamelModel):
+    thread_id: str
+    message: str
+
+
 class ToolTestRequest(CamelModel):
     """Try a tool as currently edited. `tool.auth_token` omitted falls back to
     the token already stored for that tool name."""
@@ -78,6 +84,7 @@ class SentRequest(CamelModel):
 
 
 class ToolTestResult(CamelModel):
+    args: dict[str, Any] = {}
     request: SentRequest
     status: int | None
     elapsed_ms: int

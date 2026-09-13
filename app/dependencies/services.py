@@ -15,6 +15,7 @@ from app.services.admin.admin_session_service import AdminSessionService
 from app.services.admin.priority_service import PriorityService
 from app.backgrounds.files_processor import FileProcessor
 from app.db.qdrant import qdrant
+from app.db.langgraph import LGManager
 from app.db.session import async_session_maker
 from app.dependencies.database import get_session
 from app.services.retrieval.extraction_service import ExtractionService
@@ -22,13 +23,18 @@ from app.services.retrieval.indexing_service import IndexingService
 from app.storage import get_storage
 from app.config import get_settings
 
-def get_generation_service() -> GenerationService:
-    setting = get_settings()
-    return GenerationService(agent=setting.AGENT_NAME)
-
-
 def get_pubsub(request: Request) -> PubSub:
     return request.app.state.pubsub
+
+
+def get_langgraph(request: Request) -> LGManager:
+    return request.app.state.langgraph
+
+
+def get_generation_service(
+    langgraph: LGManager = Depends(get_langgraph),
+) -> GenerationService:
+    return GenerationService(async_session_maker, langgraph)
 
 
 def get_session_service(

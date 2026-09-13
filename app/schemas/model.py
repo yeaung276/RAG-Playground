@@ -16,7 +16,7 @@ class ApiSchema(StrEnum):
     OPENAI = "openai"  # /embeddings, /chat/completions
     TEI = "tei"        # /embed, /rerank
     COHERE = "cohere"  # /rerank, Cohere-style body
-    GEMINI = "gemini"  # /interactions, Gemini-native body
+    GEMINI = "google_genai"  # /interactions, Gemini-native body
 
 
 VALID_PAIRS: dict[ApiSchema, set[Capability]] = {

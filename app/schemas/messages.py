@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from app.schemas.base import CamelModel
 
@@ -10,8 +10,6 @@ Feedback = Literal["like", "dislike"]
 class UserMessage(CamelModel):
     sender: str
     content: str | None = None
-    image_base64: str | None = None
-    image_mime_type: str | None = None
 
 
 class FeedbackRequest(CamelModel):
@@ -27,12 +25,38 @@ class FeedbackEventData(CamelModel):
 
 class TokenFrame(CamelModel):
     type: Literal["token"] = "token"
+    agent: str | None = None
+    delta: str
+
+    
+class ThinkingFrame(CamelModel):
+    type: Literal["thinking"] = "thinking"
+    agent: str | None = None
     delta: str
 
 
 class ToolCallFrame(CamelModel):
     type: Literal["tool_call"] = "tool_call"
     name: str
+
+
+class ToolResultFrame(CamelModel):
+    type: Literal["tool_result"] = "tool_result"
+    agent: str | None = None
+    name: str | None = None
+    args: dict[str, Any] = {}
+    content: str = ""
+    status: Literal["success", "error"] = "success"
+    elapsed_ms: int | None = None
+
+
+class MessageFrame(CamelModel):
+    type: Literal["message"] = "message"
+    agent: str | None = None
+    role: Literal["human", "ai"]
+    content: str = ""
+    thinking: str | None = None
+    usage: dict[str, int] | None = None
 
 
 class DoneFrame(CamelModel):
@@ -50,6 +74,5 @@ class ChatResponse(CamelModel):
     session_id: str
     sender: str
     content: str | None
-    has_image: bool
     created_at: datetime
     feedback: Feedback | None = None

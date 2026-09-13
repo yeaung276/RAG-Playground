@@ -4,12 +4,29 @@ import time
 from typing import Any
 
 import aiohttp
+from pydantic import BaseModel, Field, create_model
 
-from app.schemas.agent import AuthKind, SentRequest, ToolTestResult, ToolWrite
+from app.schemas.agent import AuthKind, SentRequest, ToolBase, ToolTestResult, ToolWrite
 
 MASK = "••••••"
 MAX_BODY = 4000
 _PLACEHOLDER = re.compile(r"\{\{\s*([A-Za-z0-9_]+)\s*\}\}")
+_TYPES: dict[str, type] = {"string": str, "number": float, "integer": int, "boolean": bool}
+
+
+def args_schema(tool: ToolBase) -> type[BaseModel]:
+    """The tool's `params` as the model the LLM fills in. An unknown `type` is
+    taken as a string, and an optional param defaults to None rather than
+    forcing the model to invent one."""
+    fields: dict[str, Any] = {}
+    for param in tool.params:
+        annotation = _TYPES.get(param.type, str)
+        fields[param.name] = (
+            (annotation, Field(description=param.description))
+            if param.required
+            else (annotation | None, Field(default=None, description=param.description))
+        )
+    return create_model(f"{tool.name}Args", **fields)
 
 
 def _fill(template: str, params: dict[str, Any]) -> str:
@@ -63,6 +80,7 @@ async def run(tool: ToolWrite, params: dict[str, Any], token: str | None) -> Too
             ) as response:
                 text = await response.text()
                 return ToolTestResult(
+                    args=params,
                     request=sent,
                     status=response.status,
                     elapsed_ms=int((time.perf_counter() - started) * 1000),
@@ -71,6 +89,7 @@ async def run(tool: ToolWrite, params: dict[str, Any], token: str | None) -> Too
                 )
     except Exception as exc:
         return ToolTestResult(
+            args=params,
             request=sent,
             status=None,
             elapsed_ms=int((time.perf_counter() - started) * 1000),

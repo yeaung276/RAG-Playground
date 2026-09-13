@@ -12,19 +12,18 @@ from app.services.chat.session_service import SessionService
 async def test_create_persists_fields(db_sessionmaker):
     session = await SessionService(db_sessionmaker).create()
     async with db_sessionmaker() as db:
-        message = await MessageService(db).create(session.id, "user", None, True)
+        message = await MessageService(db).create(session.id, "user", None)
     assert message.session_id == session.id
     assert message.sender == "user"
     assert message.content is None
-    assert message.has_image is True
 
 
 async def test_list_orders_by_created_at(db_sessionmaker):
     session = await SessionService(db_sessionmaker).create()
     async with db_sessionmaker() as db:
         # inserted out of chronological order to prove list() sorts by created_at
-        db.add(Message(id="m2", session_id=session.id, sender="agent", content="second", has_image=False, created_at=datetime(2026, 1, 1, 0, 1)))
-        db.add(Message(id="m1", session_id=session.id, sender="user", content="first", has_image=False, created_at=datetime(2026, 1, 1, 0, 0)))
+        db.add(Message(id="m2", session_id=session.id, sender="agent", content="second", created_at=datetime(2026, 1, 1, 0, 1)))
+        db.add(Message(id="m1", session_id=session.id, sender="user", content="first", created_at=datetime(2026, 1, 1, 0, 0)))
         await db.commit()
         rows = await MessageService(db).list(session.id)
     assert [m.id for m in rows] == ["m1", "m2"]

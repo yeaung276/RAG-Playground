@@ -5,7 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.routers import router, static
 from app.db.qdrant import qdrant
-from app.db.session import async_session_maker, engine
+from app.db.langgraph import LGManager
+from app.db.session import engine
 from app.middlewares.security import SecurityHeadersMiddleware
 from app.services.realtime import ADMIN_NOTI_CHANNEL, CHAT_CHANNEL, PubSub
 from app.metrics import instrumentator
@@ -21,7 +22,10 @@ async def lifespan(app: FastAPI):
     logger.info("Application starting up...")
     app.state.pubsub = PubSub([CHAT_CHANNEL, ADMIN_NOTI_CHANNEL])
     await app.state.pubsub.start()
+    app.state.langgraph = LGManager()
+    await app.state.langgraph.setup()
     yield
+    await app.state.langgraph.close()
     await app.state.pubsub.stop()
     await engine.dispose()
     await qdrant.close()
