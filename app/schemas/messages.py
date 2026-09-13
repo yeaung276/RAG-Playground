@@ -56,7 +56,7 @@ class MessageFrame(CamelModel):
     role: Literal["human", "ai"]
     content: str = ""
     thinking: str | None = None
-    usage: dict[str, int] | None = None
+    usage: dict[str, Any] | None = None
 
 
 class DoneFrame(CamelModel):

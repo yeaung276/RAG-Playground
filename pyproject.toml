@@ -34,6 +34,12 @@ dependencies = [
     "llama-index-llms-ollama>=0.10.1",
     "langchain-openai>=1.6.0",
     "cryptography>=50.0.1",
+    "langchain>=1.4.0",
+    "langgraph>=1.2.11",
+    "langchain-google-genai>=4.4.0",
+    "langchain-cohere>=0.6.0",
+    "langchain-huggingface>=1.2.2",
+    "langgraph-checkpoint-postgres>=3.1.2",
 ]
 
 [dependency-groups]

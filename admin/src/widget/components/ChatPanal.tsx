@@ -24,7 +24,6 @@ export default function ChatPanel() {
               id: 'welcome',
               sender: agentName,
               content: welcomeMessage,
-              hasImage: false,
               feedback: null,
             }}
           />
@@ -56,8 +55,7 @@ export default function ChatPanel() {
                 id: 'reply',
                 sender: agentName,
                 content: reply.content,
-                hasImage: false,
-                feedback: null,
+                  feedback: null,
               }}
             />
           )}

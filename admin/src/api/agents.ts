@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { requestAt } from './client';
+import { ApiError, requestAt } from './client';
+import { readFrames } from './sse';
 
 const BASE = '/api/admin/agents';
 
@@ -176,6 +177,45 @@ export function useSetEntrypoint() {
     mutationFn: (id: string) => requestAt<Agent>(`${BASE}/${id}/entrypoint`, { method: 'PUT' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.list }),
   });
+}
+
+export type TestFrame =
+  | { type: 'token'; agent: string | null; delta: string }
+  | { type: 'thinking'; agent: string | null; delta: string }
+  | { type: 'tool_call'; name: string }
+  | {
+      type: 'tool_result';
+      agent: string | null;
+      name: string | null;
+      args: Record<string, unknown>;
+      content: string;
+      status: 'success' | 'error';
+      elapsedMs: number | null;
+    }
+  | {
+      type: 'message';
+      agent: string | null;
+      role: 'human' | 'ai';
+      content: string;
+      thinking: string | null;
+      usage: Record<string, unknown> | null;
+    }
+  | { type: 'done'; id: string | null }
+  | { type: 'error'; message: string };
+
+/** Runs the roster against one thread, handing each frame over as it arrives. */
+export async function streamAgentTest(
+  threadId: string,
+  message: string,
+  onFrame: (frame: TestFrame) => void,
+) {
+  const res = await fetch(`${BASE}/test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ threadId, message }),
+  });
+  if (!res.ok || !res.body) throw new ApiError('Test run failed', res.status);
+  await readFrames<TestFrame>(res.body, onFrame);
 }
 
 export function useDeleteAgent() {

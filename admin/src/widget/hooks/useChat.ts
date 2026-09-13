@@ -10,7 +10,6 @@ interface Wire {
   id: string;
   sender: string;
   content: string | null;
-  hasImage: boolean;
   feedback?: Feedback | null;
 }
 
@@ -18,9 +17,8 @@ export interface ChatMessage {
   id: string;
   sender: string;
   content: string;
-  hasImage: boolean;
   feedback: Feedback | null;
-  failed?: { content: string; imageBase64?: string; imageMimeType?: string };
+  failed?: { content: string };
 }
 
 /** The reply arriving on the open POST /api/messages response. */
@@ -40,7 +38,6 @@ const toMessage = (wire: Wire): ChatMessage => ({
   id: wire.id,
   sender: wire.sender,
   content: wire.content ?? '',
-  hasImage: wire.hasImage,
   feedback: wire.feedback ?? null,
 });
 
@@ -87,12 +84,12 @@ export function useChat() {
   });
 
   const post = useCallback(
-    async (content: string, imageBase64?: string, imageMimeType?: string) => {
+    async (content: string) => {
       const response = await fetch(`${backendUrl}/api/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ sender: 'user', content, imageBase64, imageMimeType }),
+        body: JSON.stringify({ sender: 'user', content }),
       });
       if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
 
@@ -118,7 +115,7 @@ export function useChat() {
         // adopt the id the reply was persisted under, so the control stream's
         // copy of it replaces this one instead of duplicating it.
         if (done.id) {
-          ingest({ id: done.id, sender: agentName, content: text, hasImage: false });
+          ingest({ id: done.id, sender: agentName, content: text });
         }
       } finally {
         setReply(null);
@@ -128,11 +125,11 @@ export function useChat() {
   );
 
   const send = useCallback(
-    async (content: string, image?: { base64: string; mimeType: string }) => {
+    async (content: string) => {
       if (sending) return;
       setSending(true);
       try {
-        await post(content, image?.base64, image?.mimeType);
+        await post(content);
       } catch {
         setMessages((prev) => [
           ...prev,
@@ -140,13 +137,8 @@ export function useChat() {
             id: `failed_${Date.now()}`,
             sender: 'user',
             content,
-            hasImage: !!image,
             feedback: null,
-            failed: {
-              content,
-              imageBase64: image?.base64,
-              imageMimeType: image?.mimeType,
-            },
+            failed: { content },
           },
         ]);
       } finally {
@@ -162,7 +154,7 @@ export function useChat() {
       if (!failed || sending) return;
       setSending(true);
       try {
-        await post(failed.content, failed.imageBase64, failed.imageMimeType);
+        await post(failed.content);
         setMessages((prev) => prev.filter((m) => m.id !== id));
       } catch {
         // keep the bubble; the user can retry again

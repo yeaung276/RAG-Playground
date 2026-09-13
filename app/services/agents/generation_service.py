@@ -1,4 +1,5 @@
 import asyncio
+import re
 from collections.abc import AsyncIterator
 from functools import wraps
 from typing import Annotated, Any
@@ -15,6 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.langgraph import LGManager
+from app.logger import get_logger
 from app.metrics import generation_duration_seconds, generation_requests_total
 from app.models.agent import Agent
 from app.models.model import Model
@@ -33,6 +35,9 @@ from app.services.agents.middleware import max_step, transfer_alone
 from app.services.utils.messages import thinking
 from app.services.errors import ConflictError
 from app.services.model_service import ModelService
+
+
+logger = get_logger(__name__)
 
 
 class GenerationService:
@@ -167,6 +172,12 @@ class GenerationService:
                 raise ConflictError(f"{model.name} is a {model.capability} model, not a decoder")
             api_key = await models.api_key_of(model_id)
 
+        logger.info(
+            "resolving llm name=%s schema=%s base_url=%s",
+            model.name,
+            model.api_schema,
+            model.base_url,
+        )
         return init_chat_model(
             model.name,
             model_provider=model.api_schema,
@@ -240,7 +251,7 @@ class GenerationService:
 
             return StructuredTool.from_function(
                 func=transfer,
-                name=f"transfer_to_{name}",
+                name=f"transfer_to_{re.sub(r'[^a-zA-Z0-9_.:-]', '_', name)}",
                 description=f"Hand the conversation to {name}. {description}",
             )
 

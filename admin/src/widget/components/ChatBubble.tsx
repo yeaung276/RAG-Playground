@@ -6,8 +6,6 @@ import { useWidgetConfig } from '../config';
 import { useFeedback } from '../hooks/useFeedback';
 import type { ChatMessage, Feedback } from '../hooks/useChat';
 
-const IMAGE_NOTE = '🖼️ Image attached';
-
 function Avatar() {
   const { iconUrl, agentName } = useWidgetConfig();
   return iconUrl ? (
@@ -138,9 +136,6 @@ export default function ChatBubble({
           }`}
         >
           {message.content}
-          {message.hasImage && (
-            <div className="mt-1 text-xs opacity-80">{IMAGE_NOTE}</div>
-          )}
         </div>
         {failed && (
           <div className="mt-1 flex items-center gap-2 text-xs text-red-600">
@@ -176,9 +171,6 @@ export default function ChatBubble({
             </div>
           ) : (
             <TypingDots />
-          )}
-          {message.hasImage && (
-            <div className="mt-1 text-xs text-gray-500">{IMAGE_NOTE}</div>
           )}
         </div>
         {!streaming && showFeedback && <Vote message={message} />}

@@ -4,14 +4,14 @@ import { requestAt } from './client';
 const BASE = '/api/admin/models';
 
 export type Capability = 'bi-encoder' | 'cross-encoder' | 'decoder';
-export type ApiSchema = 'openai' | 'tei' | 'cohere' | 'gemini';
+export type ApiSchema = 'openai' | 'tei' | 'cohere' | 'google_genai';
 
 /** Capabilities each API schema can serve; mirrors VALID_PAIRS on the server. */
 export const SCHEMA_CAPABILITIES: Record<ApiSchema, Capability[]> = {
   openai: ['bi-encoder', 'decoder'],
   tei: ['bi-encoder', 'cross-encoder'],
   cohere: ['cross-encoder'],
-  gemini: ['bi-encoder', 'decoder'],
+  google_genai: ['bi-encoder', 'decoder'],
 };
 
 export const CAPABILITY_LABELS: Record<Capability, string> = {

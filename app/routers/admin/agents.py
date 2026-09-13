@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
 from app.dependencies.services import get_agent_service, get_generation_service
+from app.logger import get_logger
 from app.schemas.agent import (
     AgentCreate,
     AgentRead,
@@ -14,6 +15,8 @@ from app.schemas.agent import (
 from app.schemas.messages import DoneFrame, ErrorFrame
 from app.services.agents.agent_service import AgentService
 from app.services.agents.generation_service import GenerationService
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
@@ -41,6 +44,7 @@ async def test_agents(
             async for frame in generation.stream_reply(payload.thread_id, payload.message):
                 yield f"data: {frame.model_dump_json(by_alias=True)}\n\n"
         except Exception as exc:
+            logger.exception("test run failed on thread %s", payload.thread_id)
             yield f"data: {ErrorFrame(message=str(exc)).model_dump_json(by_alias=True)}\n\n"
         yield f"data: {DoneFrame().model_dump_json(by_alias=True)}\n\n"
 
