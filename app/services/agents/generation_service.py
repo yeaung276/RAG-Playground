@@ -1,5 +1,6 @@
 import asyncio
 import re
+import time
 from collections.abc import AsyncIterator
 from functools import wraps
 from typing import Annotated, Any
@@ -21,7 +22,14 @@ from app.logger import get_logger
 from app.metrics import generation_duration_seconds, generation_requests_total
 from app.models.agent import Agent
 from app.models.model import Model
-from app.schemas.agent import AgentRead, AgentSummary, HandoffMode, ToolTestResult, ToolWrite
+from app.schemas.agent import (
+    AgentRead,
+    AgentSummary,
+    HandoffMode,
+    SentRequest,
+    ToolTestResult,
+    ToolWrite,
+)
 from app.schemas.messages import (
     MessageFrame,
     ThinkingFrame,
@@ -33,6 +41,7 @@ from app.schemas.model import Capability
 from app.services.agents import tool_runner
 from app.services.agents.agent_service import AgentService
 from app.services.agents.middleware import max_step, transfer_alone
+from app.services.retrieval.retrieval_service import RetrievalService
 from app.services.utils.messages import thinking
 from app.services.errors import ConflictError
 from app.services.model_service import ModelService
@@ -42,9 +51,15 @@ logger = get_logger(__name__)
 
 
 class GenerationService:
-    def __init__(self, session_maker: async_sessionmaker[AsyncSession], langgraph: LGManager):
+    def __init__(
+        self,
+        session_maker: async_sessionmaker[AsyncSession],
+        langgraph: LGManager,
+        retrieval: RetrievalService,
+    ):
         self.session_maker = session_maker
         self.langgraph = langgraph
+        self.retrieval = retrieval
 
     @staticmethod
     def _track(stream):
@@ -214,14 +229,47 @@ class GenerationService:
         return tools
         
     async def _create_default_tools(self, agent: AgentRead) -> list[BaseTool]:
-        # TODO: bind the knowledge base retrieval tool when agent.knowledge_id is set
-        return []
+        if agent.knowledge_id is None or agent.knowledge_config is None:
+            return []
+
+        kwargs = agent.knowledge_config.model_dump(exclude_none=True)
+
+        async def search_knowledge(query: str) -> tuple[str, ToolTestResult]:
+            started = time.perf_counter()
+            hits = await self.retrieval.retrieve(agent.knowledge_id, query, **kwargs)
+            passages = "\n\n".join(
+                hit.chunk.content if hit.chunk else hit.matched_text for hit in hits
+            )
+            return passages, ToolTestResult(
+                args={"query": query, **kwargs},
+                request=SentRequest(
+                    method="SEARCH",
+                    url=agent.knowledge_id,
+                    headers={},
+                    query={},
+                    body=None,
+                ),
+                status=None,
+                elapsed_ms=int((time.perf_counter() - started) * 1000),
+                body=passages,
+                error=None,
+            )
+
+        return [
+            StructuredTool.from_function(
+                coroutine=search_knowledge,
+                name="search_knowledge",
+                description=(
+                    "Search the attached knowledge for passages relevant to a query. "
+                    "Use it whenever the answer may be in the documents."
+                ),
+                response_format="content_and_artifact",
+            )
+        ]
 
     async def _create_agent_handoffs(
         self, agent: AgentRead, roster: list[AgentSummary]
     ) -> list[BaseTool]:
-        """One transfer tool per agent this one may hand off to. Calling it
-        routes the parent graph to that agent's node."""
         others = {a.id: a for a in roster if a.id != agent.id}
         match agent.handoff.mode:
             case HandoffMode.NONE:
@@ -236,9 +284,6 @@ class GenerationService:
                 ]
 
         def transfer_tool(name: str, description: str) -> BaseTool:
-            """Closed over its one target, so the model only chooses which tool
-            to call and cannot redirect the handoff."""
-
             def transfer(
                 state: Annotated[AgentState, InjectedState],
                 tool_call_id: Annotated[str, InjectedToolCallId],

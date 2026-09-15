@@ -1,3 +1,7 @@
+import type { KnowledgeConfig } from '../api/agents';
+
+export type { KnowledgeConfig };
+
 export type KV = { id: string; key: string; value: string };
 
 export type Param = {
@@ -41,6 +45,7 @@ export type Agent = {
   modelId: string | null;
   temperature: number;
   knowledgeId: string | null;
+  knowledgeConfig: KnowledgeConfig | null;
   maxStep: number;
   isEntrypoint: boolean;
   handoffMode: HandoffMode;

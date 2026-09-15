@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { Bot, FlaskConical } from 'lucide-react';
 import AgentGeneral from '../components/AgentGeneral';
 import AgentHandoffs from '../components/AgentHandoffs';
-import AgentRuntime from '../components/AgentRuntime';
+import AgentKnowledge from '../components/AgentKnowledge';
+import AgentModel from '../components/AgentModel';
 import AgentTools from '../components/AgentTools';
 import AgentTopology from '../components/AgentTopology';
 import AgentTrace from '../components/AgentTrace';
@@ -28,9 +29,10 @@ import { uid, type Agent, type Param, type Tool } from '../types/agent';
 
 const TABS = [
   { id: 'general', label: 'General' },
-  { id: 'runtime', label: 'Runtime' },
+  { id: 'model', label: 'Model' },
+  { id: 'knowledge', label: 'Knowledge' },
   { id: 'tools', label: 'Tools' },
-  { id: 'handoffs', label: 'Handoffs' },
+  { id: 'handoff', label: 'Handoff' },
 ] as const;
 type Tab = (typeof TABS)[number]['id'];
 
@@ -43,6 +45,7 @@ function toDraft(a: ApiAgent): Agent {
     modelId: a.modelId,
     temperature: a.temperature,
     knowledgeId: a.knowledgeId,
+    knowledgeConfig: a.knowledgeConfig,
     maxStep: a.maxStep,
     isEntrypoint: a.isEntrypoint,
     handoffMode: a.handoff.mode,
@@ -72,6 +75,7 @@ function toPatch(d: Agent): AgentPatch {
     modelId: d.modelId,
     temperature: d.temperature,
     knowledgeId: d.knowledgeId,
+    knowledgeConfig: d.knowledgeId ? d.knowledgeConfig : null,
     maxStep: d.maxStep,
     handoff: {
       mode: d.handoffMode,
@@ -225,9 +229,10 @@ export default function Agents() {
 
               <div className="min-h-0 flex-1 overflow-auto px-6 py-5">
                 {activeTab === 'general' && <AgentGeneral agent={agent} onEdit={edit} />}
-                {activeTab === 'runtime' && <AgentRuntime agent={agent} onEdit={edit} />}
+                {activeTab === 'model' && <AgentModel agent={agent} onEdit={edit} />}
+                {activeTab === 'knowledge' && <AgentKnowledge agent={agent} onEdit={edit} />}
                 {activeTab === 'tools' && <AgentTools agent={agent} onEdit={edit} />}
-                {activeTab === 'handoffs' && (
+                {activeTab === 'handoff' && (
                   <AgentHandoffs agent={agent} others={others} onEdit={edit} />
                 )}
               </div>

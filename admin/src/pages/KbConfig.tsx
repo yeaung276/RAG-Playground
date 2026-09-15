@@ -4,9 +4,10 @@ import { ArrowLeft, ChevronRight, Layers } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useKnowledgeBase, useUpdateKnowledgeBaseConfig } from '../api/knowledge';
 import {
-  EMBEDDING_MODELS,
+  CHUNKING_METHODS,
+  INDEX_TYPES,
   configFieldErrors,
-  type EmbeddingModel,
+  type ChunkingMethod,
   type KnowledgeBaseConfig,
 } from '../api/config';
 import { pushToast } from '../components/Toast';
@@ -31,7 +32,7 @@ const SECTIONS: Section[] = [
     label: 'Indexing',
     description: 'How documents are chunked and embedded for retrieval.',
     icon: Layers,
-    fields: ['parentChunkSize', 'childChunkSize', 'embeddingModel'],
+    fields: ['chunkingMethod', 'maxChunkSize', 'minChunkSize', 'indexTypes'],
   },
 ];
 
@@ -53,12 +54,15 @@ export default function KbConfig() {
 
   const errors: FieldErrors = form ? configFieldErrors(form) : {};
   const valid = !!form && Object.values(errors).every((e) => !e);
+  // Index types are a set, so order changes from toggling are not a change.
   const dirty =
     !!kb &&
     !!form &&
-    (form.parentChunkSize !== kb.config.parentChunkSize ||
-      form.childChunkSize !== kb.config.childChunkSize ||
-      form.embeddingModel !== kb.config.embeddingModel);
+    (form.chunkingMethod !== kb.config.chunkingMethod ||
+      form.maxChunkSize !== kb.config.maxChunkSize ||
+      form.minChunkSize !== kb.config.minChunkSize ||
+      form.indexTypes.length !== kb.config.indexTypes.length ||
+      form.indexTypes.some((t) => !kb.config.indexTypes.includes(t)));
 
   function sectionHasError(s: Section) {
     return s.fields.some((f) => errors[f]);
@@ -194,48 +198,74 @@ function SectionBody({
       <div className="max-w-xl space-y-8">
         <Group label="Chunking">
           <Field
-            label="Parent chunk size"
-            description="Tokens per parent chunk retrieved for context."
-            error={errors.parentChunkSize}
-          >
-            <NumberInput
-              value={form.parentChunkSize}
-              invalid={!!errors.parentChunkSize}
-              onChange={(v) => onChange({ ...form, parentChunkSize: v })}
-            />
-          </Field>
-          <Field
-            label="Child chunk size"
-            description="Tokens per child chunk used for embedding & search; must be smaller than parent."
-            error={errors.childChunkSize}
-          >
-            <NumberInput
-              value={form.childChunkSize}
-              invalid={!!errors.childChunkSize}
-              onChange={(v) => onChange({ ...form, childChunkSize: v })}
-            />
-          </Field>
-        </Group>
-
-        <Group label="Embedding">
-          <Field
-            label="Embedding model"
-            description="Model used to embed chunks for semantic search."
-            error={errors.embeddingModel}
+            label="Chunking method"
+            description="How documents are split into parent chunks."
+            error={errors.chunkingMethod}
           >
             <select
-              value={form.embeddingModel}
+              value={form.chunkingMethod}
               onChange={(e) =>
-                onChange({ ...form, embeddingModel: e.target.value as EmbeddingModel })
+                onChange({ ...form, chunkingMethod: e.target.value as ChunkingMethod })
               }
               className="w-56 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
             >
-              {EMBEDDING_MODELS.map((m) => (
+              {CHUNKING_METHODS.map((m) => (
                 <option key={m} value={m}>
                   {m}
                 </option>
               ))}
             </select>
+          </Field>
+          <Field
+            label="Parent chunk size"
+            description="Tokens per parent chunk retrieved for context."
+            error={errors.maxChunkSize}
+          >
+            <NumberInput
+              value={form.maxChunkSize}
+              invalid={!!errors.maxChunkSize}
+              onChange={(v) => onChange({ ...form, maxChunkSize: v })}
+            />
+          </Field>
+          <Field
+            label="Child chunk size"
+            description="Tokens per child chunk used for embedding & search; must be smaller than parent."
+            error={errors.minChunkSize}
+          >
+            <NumberInput
+              value={form.minChunkSize}
+              invalid={!!errors.minChunkSize}
+              onChange={(v) => onChange({ ...form, minChunkSize: v })}
+            />
+          </Field>
+        </Group>
+
+        <Group label="Indexing">
+          <Field
+            label="Index types"
+            description="Indexes built over the chunks. Changing these rebuilds the collection and re-indexes every file."
+            error={errors.indexTypes}
+          >
+            <div className="flex w-56 flex-col gap-1.5">
+              {INDEX_TYPES.map((t) => (
+                <label key={t} className="flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={form.indexTypes.includes(t)}
+                    onChange={(e) =>
+                      onChange({
+                        ...form,
+                        indexTypes: e.target.checked
+                          ? [...form.indexTypes, t]
+                          : form.indexTypes.filter((i) => i !== t),
+                      })
+                    }
+                    className="accent-indigo-600"
+                  />
+                  {t}
+                </label>
+              ))}
+            </div>
           </Field>
         </Group>
       </div>

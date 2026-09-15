@@ -1,10 +1,11 @@
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from app.schemas.base import CamelModel
+from app.services.retrieval.document import IndexTypes
 
 
 class HandoffMode(StrEnum):
@@ -53,8 +54,6 @@ class ToolBase(CamelModel):
 
 
 class ToolWrite(ToolBase):
-    """`auth_token` omitted keeps the stored one; `auth: none` erases it."""
-
     auth_token: str | None = None
 
 
@@ -68,9 +67,6 @@ class AgentTestRequest(CamelModel):
 
 
 class ToolTestRequest(CamelModel):
-    """Try a tool as currently edited. `tool.auth_token` omitted falls back to
-    the token already stored for that tool name."""
-
     tool: ToolWrite
     params: dict[str, str] = Field(default_factory=dict)
 
@@ -103,36 +99,37 @@ class Handoff(CamelModel):
     targets: list[HandoffTarget] = Field(default_factory=list)
 
 
+class KnowledgeConfig(CamelModel):
+    index_types: list[IndexTypes] = Field(min_length=1)
+    top_k: int | None = Field(default=None, gt=0)
+    rerank_on: Literal["parent", "child"] | None = None
+    rerank_pool: int | None = Field(default=None, gt=0)
+    prefetch_limit: int | None = Field(default=None, gt=0)
+
+
 class AgentCreate(CamelModel):
     name: str
-    description: str = ""
-    instruction: str = ""
-    model_id: str | None = None
-    temperature: int = Field(default=0, ge=0, le=100)
-    knowledge_id: str | None = None
-    max_step: int = Field(default=10, ge=1)
-    tools: list[ToolWrite] = Field(default_factory=list)
-    handoff: Handoff = Field(default_factory=Handoff)
 
 
 class AgentUpdate(CamelModel):
-    """`tools` is the whole list: names not sent are deleted. The agent's own
-    `name` is fixed at creation and cannot be patched."""
-
     description: str | None = None
     instruction: str | None = None
     model_id: str | None = None
     temperature: int | None = Field(default=None, ge=0, le=100)
     knowledge_id: str | None = None
+    knowledge_config: KnowledgeConfig | None = None
     max_step: int | None = Field(default=None, ge=1)
     tools: list[ToolWrite] | None = None
     handoff: Handoff | None = None
 
+    @model_validator(mode="after")
+    def _knowledge_needs_a_config(self) -> "AgentUpdate":
+        if self.knowledge_id is not None and self.knowledge_config is None:
+            raise ValueError("knowledge_config is required when knowledge_id is set")
+        return self
+
 
 class AgentSummary(CamelModel):
-    """Roster row. Tools and handoff targets are counted here rather than
-    inlined — the full documents come from the detail endpoint."""
-
     id: str
     name: str
     description: str
@@ -152,6 +149,7 @@ class AgentRead(CamelModel):
     model_id: str | None
     temperature: int
     knowledge_id: str | None
+    knowledge_config: KnowledgeConfig | None
     max_step: int
     tools: list[ToolRead]
     handoff: Handoff

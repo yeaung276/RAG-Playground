@@ -15,11 +15,13 @@ def kek(monkeypatch):
     get_settings.cache_clear()
 
 
-async def test_create_returns_201_with_camel_case_body(client):
-    response = await client.post(
-        BASE,
+async def test_create_takes_a_name_and_patch_returns_camel_case_body(client):
+    created = await client.post(BASE, json={"name": "router"})
+    assert created.status_code == 201
+
+    response = await client.patch(
+        f"{BASE}/{created.json()['id']}",
         json={
-            "name": "router",
             "instruction": "route the user",
             "temperature": 30,
             "maxStep": 5,
@@ -28,7 +30,6 @@ async def test_create_returns_201_with_camel_case_body(client):
         },
     )
     body = response.json()
-    assert response.status_code == 201
     assert (body["maxStep"], body["isEntrypoint"]) == (5, False)
     assert body["tools"][0]["hasAuthToken"] is True
     assert "authToken" not in body["tools"][0]
@@ -49,10 +50,10 @@ async def test_list_is_unpaginated(client):
 
 
 async def test_list_returns_counts_not_documents(client):
-    await client.post(
-        BASE,
+    agent = (await client.post(BASE, json={"name": "router"})).json()
+    await client.patch(
+        f"{BASE}/{agent['id']}",
         json={
-            "name": "router",
             "tools": [
                 {"name": "search", "enabled": True},
                 {"name": "ping", "enabled": False},
@@ -66,15 +67,11 @@ async def test_list_returns_counts_not_documents(client):
 
 
 async def test_patch_keeps_the_stored_token(client):
-    agent = (
-        await client.post(
-            BASE,
-            json={
-                "name": "router",
-                "tools": [{"name": "search", "auth": "bearer", "authToken": "tok-1"}],
-            },
-        )
-    ).json()
+    agent = (await client.post(BASE, json={"name": "router"})).json()
+    await client.patch(
+        f"{BASE}/{agent['id']}",
+        json={"tools": [{"name": "search", "auth": "bearer", "authToken": "tok-1"}]},
+    )
     response = await client.patch(
         f"{BASE}/{agent['id']}",
         json={"tools": [{"name": "search", "auth": "bearer", "url": "https://example.com"}]},
@@ -106,5 +103,6 @@ async def test_name_cannot_be_patched(client):
 
 
 async def test_temperature_out_of_range_returns_422(client):
-    response = await client.post(BASE, json={"name": "router", "temperature": 101})
+    agent = (await client.post(BASE, json={"name": "router"})).json()
+    response = await client.patch(f"{BASE}/{agent['id']}", json={"temperature": 101})
     assert response.status_code == 422

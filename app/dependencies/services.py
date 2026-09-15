@@ -20,6 +20,7 @@ from app.db.session import async_session_maker
 from app.dependencies.database import get_session
 from app.services.retrieval.extraction_service import ExtractionService
 from app.services.retrieval.indexing_service import IndexingService
+from app.services.retrieval.retrieval_service import RetrievalService
 from app.storage import get_storage
 from app.config import get_settings
 
@@ -31,10 +32,15 @@ def get_langgraph(request: Request) -> LGManager:
     return request.app.state.langgraph
 
 
+def get_retrieval_service() -> RetrievalService:
+    return RetrievalService(async_session_maker, qdrant)
+
+
 def get_generation_service(
     langgraph: LGManager = Depends(get_langgraph),
+    retrieval: RetrievalService = Depends(get_retrieval_service),
 ) -> GenerationService:
-    return GenerationService(async_session_maker, langgraph)
+    return GenerationService(async_session_maker, langgraph, retrieval)
 
 
 def get_session_service(

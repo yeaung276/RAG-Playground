@@ -36,20 +36,9 @@ class AgentService:
         self.session = session
 
     async def create(self, payload: AgentCreate) -> AgentRead:
-        agent = Agent(
-            name=payload.name,
-            description=payload.description,
-            instruction=payload.instruction,
-            model_id=payload.model_id,
-            temperature=payload.temperature,
-            knowledge_id=payload.knowledge_id,
-            max_step=payload.max_step,
-            handoff=payload.handoff.model_dump(by_alias=True, mode="json"),
-        )
+        agent = Agent(name=payload.name)
         self.session.add(agent)
         try:
-            await self.session.flush()
-            agent.tools = self._merge_tools(agent, payload.tools)
             await self.session.commit()
         except IntegrityError:
             await self.session.rollback()
@@ -66,6 +55,12 @@ class AgentService:
             agent.tools = self._merge_tools(agent, payload.tools or [])
         if "handoff" in fields:
             fields["handoff"] = payload.handoff.model_dump(by_alias=True, mode="json")
+        if "knowledge_config" in fields:
+            fields["knowledge_config"] = (
+                payload.knowledge_config.model_dump(by_alias=True, mode="json")
+                if payload.knowledge_config is not None
+                else None
+            )
         for field, value in fields.items():
             setattr(agent, field, value)
 
@@ -184,6 +179,7 @@ class AgentService:
             model_id=agent.model_id,
             temperature=agent.temperature,
             knowledge_id=agent.knowledge_id,
+            knowledge_config=agent.knowledge_config,
             max_step=agent.max_step,
             tools=tools,
             handoff=Handoff(**agent.handoff),

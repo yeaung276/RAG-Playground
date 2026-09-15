@@ -6,12 +6,20 @@ const GENERAL: [string, string][] = [
   ['Description', 'What this agent handles. Other agents read it when deciding whether to hand work over, so write it as a scope, not a greeting.'],
 ];
 
-const RUNTIME: [string, string][] = [
-  ['Model', 'Which chat model answers. Only models registered with the decoder capability appear here.'],
-  ['Temperature', '0–100. Low is repeatable and literal, high is varied. Tool-calling agents usually want it low.'],
-  ['Max steps', 'How many tool-call rounds the agent may take before it has to answer. Stops a loop from running forever.'],
-  ['Knowledge', 'Optional. Attach one knowledge to give the agent retrieval over those documents.'],
+const MODEL: [string, string][] = [
+  ['Model', 'Which chat model answers. Only models registered with the decoder capability appear here, and an agent with no model fails the moment the runtime reaches it.'],
+  ['Temperature', '0–100, sent to the provider as 0–1. Low is repeatable and literal, high is varied. Tool-calling agents usually want it low.'],
+  ['Max steps', 'How many model calls one run may make. The run is cut off when the limit is reached, so a low limit can end a turn with no final answer.'],
   ['System prompt', 'Prepended to every turn. Handoff descriptions are added automatically, so there is no need to restate them here.'],
+];
+
+const KNOWLEDGE: [string, string][] = [
+  ['Knowledge', 'Optional. Attach one knowledge base and the agent is given a search tool over its documents.'],
+  ['Index types', 'Which of the base’s indexes to search. Only the indexes it was built with are offered, at least one is required, and searching several fuses their rankings.'],
+  ['Top K', 'How many parent chunks come back to the model. Blank leaves the server default.'],
+  ['Rerank on', 'Off, or rescore the hits with a cross-encoder before the cut — on the parent chunk, or on the child that actually matched.'],
+  ['Rerank pool', 'How many hits the reranker scores before cutting to Top K. Blank means Top K.'],
+  ['Prefetch limit', 'How many candidates each index contributes before fusion. Blank means twice the rerank pool.'],
 ];
 
 const TOOL_FIELDS: [string, string][] = [
@@ -42,8 +50,8 @@ export default function Agents() {
         <Link to="/agents" className="font-medium text-indigo-600 hover:text-indigo-700">
           Agents
         </Link>{' '}
-        page — the roster on the left, the selected agent's settings on the right across four
-        tabs: General, Runtime, Tools and Handoffs.
+        page — the roster on the left, the selected agent's settings on the right across five
+        tabs: General, Model, Knowledge, Tools and Handoff.
       </P>
       <P>
         Changes on the right are a draft until you press <C>Save changes</C>. Adding, deleting and
@@ -60,6 +68,11 @@ export default function Agents() {
       <P>
         Each roster row also shows how many enabled tools the agent has and how many handoff
         targets it defines. Deleting an agent is immediate and cannot be undone.
+      </P>
+      <P>
+        The badge at the top of the roster is derived from the agent count, never chosen:{' '}
+        <b>Single</b> while one agent answers everything, <b>Swarm</b> as soon as there are two or
+        more and work can move between them.
       </P>
       <Note title="One entrypoint at a time">
         Deleting the entrypoint leaves the system without one. Promote another agent before or
@@ -79,15 +92,39 @@ export default function Agents() {
         credentials are keyed against it. Delete the agent and add it again under the new name.
       </Note>
 
-      <H2 id="runtime">Runtime</H2>
+      <H2 id="model">Model</H2>
       <P>How the agent actually runs, and the prompt it runs with.</P>
       <Table
         head={['Field', 'What it means']}
-        rows={RUNTIME.map(([field, description]) => [
+        rows={MODEL.map(([field, description]) => [
           <span className="whitespace-nowrap font-medium text-slate-800">{field}</span>,
           description,
         ])}
       />
+      <Note title="Max steps counts model calls, not tool calls">
+        The limit is on how many times the model is invoked in one run, and one invocation can
+        ask for several tools at once. When the limit is hit the run simply ends — the agent is
+        not given a last turn to summarise.
+      </Note>
+
+      <H2 id="knowledge">Knowledge</H2>
+      <P>
+        Optional retrieval over one knowledge base, so the agent can answer from your documents
+        instead of the model's own training.
+      </P>
+      <Table
+        head={['Field', 'What it means']}
+        rows={KNOWLEDGE.map(([field, description]) => [
+          <span className="whitespace-nowrap font-medium text-slate-800">{field}</span>,
+          description,
+        ])}
+      />
+      <Note title="It arrives as a tool, not as context">
+        An agent with knowledge attached is given a <C>search_knowledge</C> tool, so retrieval
+        happens only when the model decides to call it — say so in the system prompt if the
+        documents are the point. The index types belong to the base, so switching base starts the
+        config over.
+      </Note>
 
       <H2 id="tools">Tools</H2>
       <P>
@@ -130,10 +167,12 @@ export default function Agents() {
         you are unsure what it does.
       </Note>
 
-      <H2 id="handoffs">Handoffs</H2>
+      <H2 id="handoff">Handoff</H2>
       <P>
         A handoff lets one agent transfer the conversation to another. Any agent can hand off, not
-        only the entrypoint, and each handoff is offered to the model as a tool it may call.
+        only the entrypoint, and each handoff is offered to the model as a tool it may call —{' '}
+        <C>transfer_to_&lt;name&gt;</C>, one tool per target, so the model picks a destination
+        rather than naming one.
       </P>
       <Table
         head={['Mode', 'Behaviour']}
@@ -145,7 +184,26 @@ export default function Agents() {
       <P>
         In Manual mode you pick each target and write a description for it. Write that description
         as a routing rule — the condition under which the transfer should happen — because it is
-        what the model reads when choosing. Each agent can be listed once.
+        what the model reads when choosing. Each agent can be listed once, and a target you leave
+        blank falls back to that agent's own description.
+      </P>
+      <Note title="A transfer travels alone, and does not come back">
+        If the model asks for a transfer and other tools in the same turn, the other calls are
+        dropped and only the transfer runs. Once the conversation moves, it stays there — the new
+        agent owns the rest of the run, with no automatic return to the agent that handed off.
+      </Note>
+
+      <H2 id="testing-the-roster">Testing the roster</H2>
+      <P>
+        <C>Test</C> in the header runs the saved roster end to end from the entrypoint. The left
+        pane shows what a user would see; the right pane shows every message, including each tool
+        call with its arguments, result and elapsed time, and which agent produced it. Reasoning
+        and answer tokens stream in as they arrive.
+      </P>
+      <P>
+        Each panel holds one throwaway thread — turns build on each other while it is open, and
+        closing it drops the conversation. It runs the <i>saved</i> agents, so save your draft
+        first, and it needs an entrypoint plus a model on every agent the run reaches.
       </P>
 
       <H2 id="saving">Saving</H2>

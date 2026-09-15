@@ -150,9 +150,10 @@ export default function FileDetailDrawer({ kbId, nodeId, onClose }: Props) {
                 Config
               </h4>
               <dl className="space-y-1">
-                <ConfigRow label="Parent chunk size" value={data.config.parentChunkSize} />
-                <ConfigRow label="Child chunk size" value={data.config.childChunkSize} />
-                <ConfigRow label="Embedding model" value={data.config.embeddingModel} />
+                <ConfigRow label="Chunking method" value={data.config.chunkingMethod} />
+                <ConfigRow label="Parent chunk size" value={data.config.maxChunkSize} />
+                <ConfigRow label="Child chunk size" value={data.config.minChunkSize} />
+                <ConfigRow label="Index types" value={data.config.indexTypes.join(', ')} />
               </dl>
             </div>
           )}

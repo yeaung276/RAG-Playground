@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, requestAt } from './client';
 import { readFrames } from './sse';
+import type { IndexType } from './config';
 
 const BASE = '/api/admin/agents';
 
@@ -44,6 +45,14 @@ export interface Tool {
 /** A tool on the way out: omit `authToken` to keep the stored one. */
 export type ToolInput = Omit<Tool, 'hasAuthToken'> & { authToken?: string };
 
+export interface KnowledgeConfig {
+  indexTypes: IndexType[];
+  topK: number | null;
+  rerankOn: 'parent' | 'child' | null;
+  rerankPool: number | null;
+  prefetchLimit: number | null;
+}
+
 export interface HandoffTarget {
   id?: string;
   agentId: string;
@@ -63,6 +72,7 @@ export interface Agent {
   modelId: string | null;
   temperature: number;
   knowledgeId: string | null;
+  knowledgeConfig: KnowledgeConfig | null;
   maxStep: number;
   tools: Tool[];
   handoff: Handoff;
@@ -91,6 +101,7 @@ export interface AgentInput {
   modelId?: string | null;
   temperature?: number;
   knowledgeId?: string | null;
+  knowledgeConfig?: KnowledgeConfig | null;
   maxStep?: number;
   tools?: ToolInput[];
   handoff?: Handoff;

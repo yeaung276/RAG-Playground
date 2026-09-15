@@ -27,19 +27,25 @@ def tool(name: str, **kwargs) -> ToolWrite:
     return ToolWrite(name=name, **kwargs)
 
 
-async def test_create_persists_fields(db_sessionmaker):
+async def make(service: AgentService, name: str = "router", **patch):
+    """A new agent takes a name only, so anything else arrives as a patch."""
+    agent = await service.create(AgentCreate(name=name))
+    if patch:
+        agent = await service.update(agent.id, AgentUpdate(**patch))
+    return agent
+
+
+async def test_patch_persists_fields(db_sessionmaker):
     async with db_sessionmaker() as db:
-        agent = await AgentService(db).create(
-            AgentCreate(
-                name="router",
-                description="front door",
-                instruction="route the user",
-                temperature=30,
-                maxStep=5,
-                handoff=Handoff(
-                    mode="manual", targets=[HandoffTarget(agentId="a2", description="billing")]
-                ),
-            )
+        agent = await make(
+            AgentService(db),
+            description="front door",
+            instruction="route the user",
+            temperature=30,
+            maxStep=5,
+            handoff=Handoff(
+                mode="manual", targets=[HandoffTarget(agentId="a2", description="billing")]
+            ),
         )
     assert (agent.name, agent.temperature, agent.max_step) == ("router", 30, 5)
     assert agent.handoff.mode == "manual"
@@ -47,11 +53,12 @@ async def test_create_persists_fields(db_sessionmaker):
     assert agent.tools == []
 
 
-async def test_create_defaults_to_no_handoff(db_sessionmaker):
+async def test_a_new_agent_starts_blank(db_sessionmaker):
     async with db_sessionmaker() as db:
         agent = await AgentService(db).create(AgentCreate(name="solo"))
     assert agent.handoff.mode == "none"
     assert agent.handoff.targets == []
+    assert (agent.tools, agent.knowledge_id, agent.knowledge_config) == ([], None, None)
 
 
 async def test_duplicate_name_conflicts(db_sessionmaker):
@@ -64,10 +71,8 @@ async def test_duplicate_name_conflicts(db_sessionmaker):
 
 async def test_auth_token_is_encrypted_at_rest(db_sessionmaker):
     async with db_sessionmaker() as db:
-        agent = await AgentService(db).create(
-            AgentCreate(
-                name="router", tools=[tool("search", auth="bearer", authToken="tok-1")]
-            )
+        agent = await make(
+            AgentService(db), tools=[tool("search", auth="bearer", authToken="tok-1")]
         )
         row = await db.get(Agent, agent.id)
         stored = row.tools[0]
@@ -82,14 +87,12 @@ async def test_auth_token_is_encrypted_at_rest(db_sessionmaker):
 async def test_auth_token_of_round_trips(db_sessionmaker):
     async with db_sessionmaker() as db:
         service = AgentService(db)
-        agent = await service.create(
-            AgentCreate(
-                name="router",
-                tools=[
-                    tool("search", auth="bearer", authToken="tok-1"),
-                    tool("fetch", auth="bearer", authToken="tok-2"),
-                ],
-            )
+        agent = await make(
+            service,
+            tools=[
+                tool("search", auth="bearer", authToken="tok-1"),
+                tool("fetch", auth="bearer", authToken="tok-2"),
+            ],
         )
         assert await service.auth_token_of(agent.id, "search") == "tok-1"
         assert await service.auth_token_of(agent.id, "fetch") == "tok-2"
@@ -108,9 +111,7 @@ async def test_auth_token_of_unknown_tool_raises(db_sessionmaker):
 async def test_patch_without_token_keeps_stored_one(db_sessionmaker):
     async with db_sessionmaker() as db:
         service = AgentService(db)
-        agent = await service.create(
-            AgentCreate(name="router", tools=[tool("search", auth="bearer", authToken="tok-1")])
-        )
+        agent = await make(service, tools=[tool("search", auth="bearer", authToken="tok-1")])
         updated = await service.update(
             agent.id,
             AgentUpdate(tools=[tool("search", auth="bearer", url="https://example.com")]),
@@ -124,9 +125,7 @@ async def test_patch_without_token_keeps_stored_one(db_sessionmaker):
 async def test_patch_with_token_replaces_it(db_sessionmaker):
     async with db_sessionmaker() as db:
         service = AgentService(db)
-        agent = await service.create(
-            AgentCreate(name="router", tools=[tool("search", auth="bearer", authToken="tok-1")])
-        )
+        agent = await make(service, tools=[tool("search", auth="bearer", authToken="tok-1")])
         await service.update(
             agent.id, AgentUpdate(tools=[tool("search", auth="bearer", authToken="tok-2")])
         )
@@ -136,11 +135,8 @@ async def test_patch_with_token_replaces_it(db_sessionmaker):
 async def test_patch_is_a_whole_list_keyed_by_name(db_sessionmaker):
     async with db_sessionmaker() as db:
         service = AgentService(db)
-        agent = await service.create(
-            AgentCreate(
-                name="router",
-                tools=[tool("search", auth="bearer", authToken="tok-1"), tool("ping")],
-            )
+        agent = await make(
+            service, tools=[tool("search", auth="bearer", authToken="tok-1"), tool("ping")]
         )
         updated = await service.update(
             agent.id,
@@ -154,9 +150,7 @@ async def test_patch_is_a_whole_list_keyed_by_name(db_sessionmaker):
 async def test_auth_none_erases_the_token(db_sessionmaker):
     async with db_sessionmaker() as db:
         service = AgentService(db)
-        agent = await service.create(
-            AgentCreate(name="router", tools=[tool("search", auth="bearer", authToken="tok-1")])
-        )
+        agent = await make(service, tools=[tool("search", auth="bearer", authToken="tok-1")])
         updated = await service.update(agent.id, AgentUpdate(tools=[tool("search", auth="none")]))
         assert updated.tools[0].has_auth_token is False
         assert await service.auth_token_of(agent.id, "search") is None
@@ -165,9 +159,7 @@ async def test_auth_none_erases_the_token(db_sessionmaker):
 async def test_patch_leaves_unsent_fields_alone(db_sessionmaker):
     async with db_sessionmaker() as db:
         service = AgentService(db)
-        agent = await service.create(
-            AgentCreate(name="router", instruction="route", tools=[tool("search")])
-        )
+        agent = await make(service, instruction="route", tools=[tool("search")])
         updated = await service.update(agent.id, AgentUpdate(temperature=80))
     assert updated.temperature == 80
     assert updated.instruction == "route"
@@ -177,11 +169,8 @@ async def test_patch_leaves_unsent_fields_alone(db_sessionmaker):
 async def test_patch_replaces_handoff(db_sessionmaker):
     async with db_sessionmaker() as db:
         service = AgentService(db)
-        agent = await service.create(
-            AgentCreate(
-                name="router",
-                handoff=Handoff(mode="manual", targets=[HandoffTarget(agentId="a2")]),
-            )
+        agent = await make(
+            service, handoff=Handoff(mode="manual", targets=[HandoffTarget(agentId="a2")])
         )
         updated = await service.update(agent.id, AgentUpdate(handoff=Handoff(mode="auto")))
     assert updated.handoff.mode == "auto"
@@ -235,4 +224,4 @@ async def test_deleting_the_entrypoint_leaves_none(db_sessionmaker):
 
 async def test_temperature_is_bounded():
     with pytest.raises(ValueError):
-        AgentCreate(name="router", temperature=101)
+        AgentUpdate(temperature=101)

@@ -42,7 +42,7 @@ async def test_send_with_active_session_cookie_streams_the_reply(
         for line in resp.text.splitlines()
         if line.startswith("data:")
     ]
-    assert frames[0] == {"type": "token", "delta": "echo:hi"}
+    assert frames[0] == {"type": "token", "agent": None, "delta": "echo:hi"}
     assert frames[-1]["type"] == "done"
     assert frames[-1]["id"]
 

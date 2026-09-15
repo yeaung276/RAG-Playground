@@ -1,4 +1,3 @@
-import { useKnowledgeBases } from '../api/knowledge';
 import { useModels } from '../api/models';
 import type { Agent } from '../types/agent';
 
@@ -7,9 +6,8 @@ interface Props {
   onEdit: (patch: Partial<Agent>) => void;
 }
 
-export default function AgentRuntime({ agent, onEdit }: Props) {
+export default function AgentModel({ agent, onEdit }: Props) {
   const { data: models } = useModels(1, 'decoder', 100);
-  const { data: bases } = useKnowledgeBases();
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -68,27 +66,6 @@ export default function AgentRuntime({ agent, onEdit }: Props) {
             onChange={(e) => onEdit({ maxStep: Math.max(1, Number(e.target.value) || 1) })}
             className="w-64 shrink-0 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
           />
-        </div>
-
-        <div className="flex flex-col gap-3 py-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
-          <div className="min-w-0 sm:pt-1.5">
-            <p className="text-sm font-medium text-slate-700">Knowledge</p>
-            <p className="mt-0.5 text-[11px] text-slate-400">
-              Attach knowledge to give this agent retrieval over its documents.
-            </p>
-          </div>
-          <select
-            value={agent.knowledgeId ?? ''}
-            onChange={(e) => onEdit({ knowledgeId: e.target.value || null })}
-            className="w-64 shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-          >
-            <option value="">None</option>
-            {bases?.map((kb) => (
-              <option key={kb.id} value={kb.id}>
-                {kb.name}
-              </option>
-            ))}
-          </select>
         </div>
       </div>
 

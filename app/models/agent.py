@@ -35,11 +35,14 @@ class Agent(Base):
     description: Mapped[str] = mapped_column(default="")
     instruction: Mapped[str] = mapped_column(default="")
     model_id: Mapped[str | None] = mapped_column(
-        ForeignKey("models.id"), index=True, default=None
+        ForeignKey("models.id", ondelete="SET NULL"), index=True, default=None
     )
     temperature: Mapped[int] = mapped_column(default=0)
     knowledge_id: Mapped[str | None] = mapped_column(
-        ForeignKey("knowledge_bases.id"), index=True, default=None
+        ForeignKey("knowledge_bases.id", ondelete="SET NULL"), index=True, default=None
+    )
+    knowledge_config: Mapped[dict[str, Any] | None] = mapped_column(
+        _JSON, default=None
     )
     max_step: Mapped[int] = mapped_column(default=10)
     tools: Mapped[list[dict[str, Any]]] = mapped_column(

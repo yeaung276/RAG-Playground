@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
 import {
+  CHUNKING_METHODS,
   DEFAULT_CONFIG,
-  EMBEDDING_MODELS,
+  INDEX_TYPES,
   configFieldErrors,
-  type EmbeddingModel,
+  type ChunkingMethod,
   type KnowledgeBaseConfig,
 } from '../api/config';
 
@@ -86,39 +87,66 @@ export default function NewKbModal({ open, onOpenChange, onSubmit }: Props) {
             <div className="grid grid-cols-2 gap-3">
               <NumberField
                 label="Parent chunk size"
-                value={config.parentChunkSize}
-                onChange={(v) => setConfig({ ...config, parentChunkSize: v })}
+                value={config.maxChunkSize}
+                onChange={(v) => setConfig({ ...config, maxChunkSize: v })}
                 hint="Tokens per parent chunk kept for context."
-                error={errors.parentChunkSize}
+                error={errors.maxChunkSize}
               />
               <NumberField
                 label="Child chunk size"
-                value={config.childChunkSize}
-                onChange={(v) => setConfig({ ...config, childChunkSize: v })}
+                value={config.minChunkSize}
+                onChange={(v) => setConfig({ ...config, minChunkSize: v })}
                 hint="Tokens per child chunk; must be smaller than parent."
-                error={errors.childChunkSize}
+                error={errors.minChunkSize}
               />
             </div>
 
             <label className="flex flex-col gap-1">
-              <span className="text-sm font-medium text-slate-600">Embedding model</span>
+              <span className="text-sm font-medium text-slate-600">Chunking method</span>
               <select
-                value={config.embeddingModel}
+                value={config.chunkingMethod}
                 onChange={(e) =>
-                  setConfig({ ...config, embeddingModel: e.target.value as EmbeddingModel })
+                  setConfig({ ...config, chunkingMethod: e.target.value as ChunkingMethod })
                 }
                 className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
               >
-                {EMBEDDING_MODELS.map((m) => (
+                {CHUNKING_METHODS.map((m) => (
                   <option key={m} value={m}>
                     {m}
                   </option>
                 ))}
               </select>
               <span className="text-[11px] text-slate-400">
-                Model used to embed chunks for semantic search.
+                How documents are split into parent chunks.
               </span>
             </label>
+
+            <div className="flex flex-col gap-1">
+              <span className="text-sm font-medium text-slate-600">Index types</span>
+              <div className="flex flex-col gap-1.5 rounded-lg border border-slate-300 px-3 py-2">
+                {INDEX_TYPES.map((t) => (
+                  <label key={t} className="flex items-center gap-2 text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={config.indexTypes.includes(t)}
+                      onChange={(e) =>
+                        setConfig({
+                          ...config,
+                          indexTypes: e.target.checked
+                            ? [...config.indexTypes, t]
+                            : config.indexTypes.filter((i) => i !== t),
+                        })
+                      }
+                      className="accent-indigo-600"
+                    />
+                    {t}
+                  </label>
+                ))}
+              </div>
+              <span className={`text-[11px] ${errors.indexTypes ? 'text-red-600' : 'text-slate-400'}`}>
+                {errors.indexTypes ?? 'Indexes built for search. Fixed once the base is created.'}
+              </span>
+            </div>
           </div>
 
           {error && <p className="mt-2 text-sm text-red-600">{error}</p>}

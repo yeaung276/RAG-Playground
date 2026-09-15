@@ -125,6 +125,26 @@ async def test_create_rejects_unknown_index_type(client):
     assert r.status_code == 422
 
 
+async def test_create_rejects_empty_index_types(client):
+    r = await client.post(
+        "/api/admin/knowledge",
+        json={
+            "name": "Bad",
+            "config": {"maxChunkSize": 1024, "minChunkSize": 256, "indexTypes": []},
+        },
+    )
+    assert r.status_code == 422
+
+
+async def test_patch_rejects_empty_index_types(client):
+    kb = (await client.post("/api/admin/knowledge", json={"name": "Base"})).json()
+    r = await client.patch(
+        f"/api/admin/knowledge/{kb['id']}",
+        json={"config": {"maxChunkSize": 1024, "minChunkSize": 256, "indexTypes": []}},
+    )
+    assert r.status_code == 422
+
+
 async def test_uploaded_file_inherits_kb_config(client):
     kb = (
         await client.post(
