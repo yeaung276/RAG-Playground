@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query
 
 from app.dependencies.services import get_model_service
 from app.schemas.model import Capability, ModelCreate, ModelPage, ModelRead, ModelUpdate
-from app.services.model_service import ModelService
+from app.services.models.model_service import ModelService
 
 router = APIRouter(prefix="/models", tags=["models"])
 

@@ -6,5 +6,6 @@ from app.models.chunk import Chunk
 from app.models.admin import Admin
 from app.models.model import Model
 from app.models.agent import Agent
+from app.models.dataset import Dataset
 
-__all__ = ["KnowledgeBase", "Node", "Chunk", "Session", "Message", "Admin", "Model", "Agent"]
+__all__ = ["KnowledgeBase", "Node", "Chunk", "Session", "Message", "Admin", "Model", "Agent", "Dataset"]

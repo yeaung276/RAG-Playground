@@ -1,9 +1,13 @@
+from langchain.chat_models import init_chat_model
+from langchain_core.language_models import BaseChatModel
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.logger import get_logger
 from app.models.model import Model
 from app.schemas.model import (
+    ApiSchema,
     Capability,
     ModelCreate,
     ModelPage,
@@ -11,7 +15,11 @@ from app.schemas.model import (
     ModelUpdate,
 )
 from app.services.errors import ConflictError, NotFoundError
+from app.services.retrieval.embedding import Embedder, OpenAIEmbedder, TEIEmbedder
+from app.services.retrieval.rerank import Reranker, TEIReranker
 from app.utils.crypto import decrypt_secret, encrypt_secret
+
+logger = get_logger(__name__)
 
 
 class ModelService:
@@ -91,6 +99,40 @@ class ModelService:
     async def delete(self, model_id: str) -> None:
         await self.session.delete(await self._get(model_id))
         await self.session.commit()
+
+    async def resolve_model(
+        self, model_id: str | None, **kwargs
+    ) -> BaseChatModel | Embedder | Reranker:
+        """The registered row becomes a live client. Its capability decides which
+        kind; `kwargs` go to that client's constructor (a decoder's temperature,
+        for instance)."""
+        if model_id is None:
+            raise ConflictError("No model assigned")
+
+        model = await self._get(model_id)
+        api_key = await self.api_key_of(model_id)
+        logger.info(
+            "resolving %s name=%s schema=%s base_url=%s",
+            model.capability, model.name, model.schema, model.base_url,
+        )
+
+        match model.capability, model.schema:
+            case Capability.DECODER, _:
+                return init_chat_model(
+                    model.name,
+                    model_provider=model.schema,
+                    base_url=model.base_url,
+                    api_key=api_key,
+                    **kwargs,
+                )
+            case Capability.BI_ENCODER, ApiSchema.OPENAI:
+                return OpenAIEmbedder(model.name, model.base_url, api_key, **kwargs)
+            case Capability.BI_ENCODER, ApiSchema.TEI:
+                return TEIEmbedder(model.name, model.base_url, api_key, **kwargs)
+            case Capability.CROSS_ENCODER, ApiSchema.TEI:
+                return TEIReranker(model.name, model.base_url, api_key, **kwargs)
+
+        raise ConflictError(f"{model.schema} does not serve {model.capability} models")
 
     async def api_key_of(self, model_id: str) -> str | None:
         """Plaintext API key, for the caller that makes the outbound request."""

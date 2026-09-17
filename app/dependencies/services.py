@@ -10,9 +10,11 @@ from app.services.hydrator import Hydrator
 from app.services.knowledge.file_service import FileService
 from app.services.knowledge.kb_service import KnowledgeBaseService
 from app.services.admin.admin_service import AdminService
-from app.services.model_service import ModelService
+from app.services.models.model_service import ModelService
 from app.services.admin.admin_session_service import AdminSessionService
 from app.services.admin.priority_service import PriorityService
+from app.services.dataset.dataset_service import DatasetService
+from app.backgrounds.dataset_processor import DatasetProcessor
 from app.backgrounds.files_processor import FileProcessor
 from app.db.qdrant import qdrant
 from app.db.langgraph import LGManager
@@ -100,6 +102,16 @@ def get_file_service(
 ) -> FileService:
     storage = get_storage()
     return FileService(session=session, storage=storage)
+
+
+def get_dataset_service(
+    session: AsyncSession = Depends(get_session),
+) -> DatasetService:
+    return DatasetService(session=session, storage=get_storage())
+
+
+def get_dataset_processor() -> DatasetProcessor:
+    return DatasetProcessor(get_storage(), async_session_maker)
 
 
 def get_extraction_service() -> ExtractionService:

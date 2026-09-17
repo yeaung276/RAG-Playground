@@ -6,7 +6,6 @@ from functools import wraps
 from typing import Annotated, Any
 
 from langchain.agents import AgentState, create_agent
-from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 from langchain_core.tools import BaseTool, InjectedToolCallId, StructuredTool
@@ -37,14 +36,13 @@ from app.schemas.messages import (
     ToolCallFrame,
     ToolResultFrame,
 )
-from app.schemas.model import Capability
 from app.services.agents import tool_runner
 from app.services.agents.agent_service import AgentService
 from app.services.agents.middleware import max_step, transfer_alone
 from app.services.retrieval.retrieval_service import RetrievalService
 from app.services.utils.messages import thinking
 from app.services.errors import ConflictError
-from app.services.model_service import ModelService
+from app.services.models.model_service import ModelService
 
 
 logger = get_logger(__name__)
@@ -166,8 +164,14 @@ class GenerationService:
         defaults = await self._create_default_tools(agent)
         tools = await self._create_agent_tools(agent)
         handoffs = await self._create_agent_handoffs(agent, roster)
+        async with self.session_maker() as session:
+            llm = await ModelService(session).resolve_model(
+                agent.model_id, temperature=agent.temperature / 100
+            )
+            if not isinstance(llm, BaseChatModel):
+                raise ConflictError(f"{agent.name} needs a decoder model to run")
         return create_agent(
-            model=await self._resolve_llm(agent.model_id, agent.temperature),
+            model=llm,
             tools=defaults + tools + handoffs,
             system_prompt=agent.instruction,
             middleware=[
@@ -177,31 +181,6 @@ class GenerationService:
             name=agent.name,
         )
     
-    async def _resolve_llm(self, model_id: str | None, temperature: int = 0) -> BaseChatModel:
-        if model_id is None:
-            raise ConflictError("Agent has no model assigned")
-
-        async with self.session_maker() as session:
-            models = ModelService(session)
-            model = await models.get(model_id)
-            if model.capability is not Capability.DECODER:
-                raise ConflictError(f"{model.name} is a {model.capability} model, not a decoder")
-            api_key = await models.api_key_of(model_id)
-
-        logger.info(
-            "resolving llm name=%s schema=%s base_url=%s",
-            model.name,
-            model.api_schema,
-            model.base_url,
-        )
-        return init_chat_model(
-            model.name,
-            model_provider=model.api_schema,
-            base_url=model.base_url,
-            api_key=api_key,
-            temperature=temperature / 100,
-        )
-        
     async def _create_agent_tools(self, agent: AgentRead) -> list[BaseTool]:
         enabled = [t for t in agent.tools if t.enabled]
         async with self.session_maker() as session:
