@@ -21,24 +21,24 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     op.create_table('datasets',
-    sa.Column('id', sa.String(), nullable=False),
-    sa.Column('name', sa.String(), nullable=False),
-    sa.Column('source_key', sa.String(), nullable=True),
-    sa.Column('result_key', sa.String(), nullable=True),
-    sa.Column('model_id', sa.String(), nullable=True),
-    sa.Column('sample_per_file', sa.Integer(), nullable=False),
-    sa.Column('mix', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-    sa.Column('labels', postgresql.JSONB(astext_type=sa.Text()), server_default='[]', nullable=False),
-    sa.Column('status', sa.String(), nullable=False),
-    sa.Column('error', sa.String(), nullable=True),
-    sa.Column('file_count', sa.Integer(), nullable=False),
-    sa.Column('parsed_count', sa.Integer(), nullable=False),
-    sa.Column('pair_count', sa.Integer(), nullable=False),
-    sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
-    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
-    sa.ForeignKeyConstraint(['model_id'], ['models.id'], ondelete='SET NULL'),
-    sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('name', name='uq_datasets_name')
+        sa.Column('id', sa.String(), nullable=False),
+        sa.Column('name', sa.String(), nullable=False),
+        sa.Column('source_key', sa.String(), nullable=True),
+        sa.Column('result_key', sa.String(), nullable=True),
+        sa.Column('model_id', sa.String(), nullable=True),
+        sa.Column('sample_per_file', sa.Integer(), nullable=False),
+        sa.Column('mix', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+        sa.Column('labels', postgresql.JSONB(astext_type=sa.Text()), server_default='[]', nullable=False),
+        sa.Column('status', sa.String(), nullable=False),
+        sa.Column('error', sa.String(), nullable=True),
+        sa.Column('file_count', sa.Integer(), nullable=False),
+        sa.Column('parsed_count', sa.Integer(), nullable=False),
+        sa.Column('pair_count', sa.Integer(), nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+        sa.ForeignKeyConstraint(['model_id'], ['models.id'], ondelete='SET NULL'),
+        sa.PrimaryKeyConstraint('id'),
+        sa.UniqueConstraint('name', name='uq_datasets_name')
     )
     op.create_index(op.f('ix_datasets_name'), 'datasets', ['name'], unique=False)
     op.create_index(op.f('ix_datasets_model_id'), 'datasets', ['model_id'], unique=False)

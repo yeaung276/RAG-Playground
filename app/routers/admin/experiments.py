@@ -1,0 +1,50 @@
+from urllib.parse import quote
+
+from fastapi import APIRouter, Depends, Query
+from fastapi.responses import Response
+
+from app.dependencies.services import get_experimentation_service
+from app.schemas.experiment import ExperimentCreate, ExperimentPage, ExperimentRead
+from app.services.dataset.experimentation_service import ExperimentationService
+
+router = APIRouter(prefix="/experiments", tags=["experiments"])
+
+
+@router.post("", response_model=ExperimentRead, status_code=201)
+async def create_experiment(
+    payload: ExperimentCreate,
+    svc: ExperimentationService = Depends(get_experimentation_service),
+):
+    return await svc.create(payload)
+
+
+@router.get("", response_model=ExperimentPage)
+async def list_experiments(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100, alias="pageSize"),
+    dataset_id: str | None = Query(None, alias="datasetId"),
+    svc: ExperimentationService = Depends(get_experimentation_service),
+):
+    return await svc.list(page=page, page_size=page_size, dataset_id=dataset_id)
+
+
+@router.get("/{experiment_id}", response_model=ExperimentRead)
+async def get_experiment(
+    experiment_id: str,
+    svc: ExperimentationService = Depends(get_experimentation_service),
+):
+    return await svc.get(experiment_id)
+
+
+@router.get("/{experiment_id}/result")
+async def get_experiment_result(
+    experiment_id: str,
+    svc: ExperimentationService = Depends(get_experimentation_service),
+):
+    name, data = await svc.read_result(experiment_id)
+    disposition = f"attachment; filename*=UTF-8''{quote(name)}"
+    return Response(
+        content=data,
+        media_type="application/json",
+        headers={"Content-Disposition": disposition},
+    )

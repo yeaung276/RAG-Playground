@@ -21,24 +21,24 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     op.create_table('agents',
-    sa.Column('id', sa.String(), nullable=False),
-    sa.Column('name', sa.String(), nullable=False),
-    sa.Column('description', sa.String(), nullable=False),
-    sa.Column('instruction', sa.String(), nullable=False),
-    sa.Column('model_id', sa.String(), nullable=True),
-    sa.Column('temperature', sa.Integer(), nullable=False),
-    sa.Column('knowledge_id', sa.String(), nullable=True),
-    sa.Column('max_step', sa.Integer(), nullable=False),
-    sa.Column('tools', postgresql.JSONB(astext_type=sa.Text()), server_default='[]', nullable=False),
-    sa.Column('handoff', postgresql.JSONB(astext_type=sa.Text()), server_default='{"mode": "none", "targets": []}', nullable=False),
-    sa.Column('is_entrypoint', sa.Boolean(), server_default=sa.text('false'), nullable=False),
-    sa.Column('tools_dek', sa.LargeBinary(), nullable=True),
-    sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
-    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
-    sa.ForeignKeyConstraint(['knowledge_id'], ['knowledge_bases.id'], ),
-    sa.ForeignKeyConstraint(['model_id'], ['models.id'], ),
-    sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('name', name='uq_agents_name')
+        sa.Column('id', sa.String(), nullable=False),
+        sa.Column('name', sa.String(), nullable=False),
+        sa.Column('description', sa.String(), nullable=False),
+        sa.Column('instruction', sa.String(), nullable=False),
+        sa.Column('model_id', sa.String(), nullable=True),
+        sa.Column('temperature', sa.Integer(), nullable=False),
+        sa.Column('knowledge_id', sa.String(), nullable=True),
+        sa.Column('max_step', sa.Integer(), nullable=False),
+        sa.Column('tools', postgresql.JSONB(astext_type=sa.Text()), server_default='[]', nullable=False),
+        sa.Column('handoff', postgresql.JSONB(astext_type=sa.Text()), server_default='{"mode": "none", "targets": []}', nullable=False),
+        sa.Column('is_entrypoint', sa.Boolean(), server_default=sa.text('false'), nullable=False),
+        sa.Column('tools_dek', sa.LargeBinary(), nullable=True),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+        sa.ForeignKeyConstraint(['knowledge_id'], ['knowledge_bases.id'], ),
+        sa.ForeignKeyConstraint(['model_id'], ['models.id'], ),
+        sa.PrimaryKeyConstraint('id'),
+        sa.UniqueConstraint('name', name='uq_agents_name')
     )
     op.create_index(op.f('ix_agents_name'), 'agents', ['name'], unique=False)
     op.create_index(

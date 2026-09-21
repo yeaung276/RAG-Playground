@@ -22,7 +22,7 @@ def upgrade() -> None:
         'models',
         sa.Column(
             'updated_at',
-            sa.DateTime(),
+            sa.DateTime(timezone=True),
             server_default=sa.text('now()'),
             nullable=False,
         ),

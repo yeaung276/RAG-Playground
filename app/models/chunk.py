@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import ForeignKey, Index, JSON, func
+from sqlalchemy import DateTime, ForeignKey, Index, JSON, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -24,4 +24,6 @@ class Chunk(Base):
     seq: Mapped[int]  # 0-based order within the document
     content: Mapped[str]
     meta: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )

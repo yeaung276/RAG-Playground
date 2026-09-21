@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import LargeBinary, UniqueConstraint, func
+from sqlalchemy import DateTime, LargeBinary, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -26,7 +26,9 @@ class Model(Base):
     capability: Mapped[str] = mapped_column(index=True)
     api_key_ct: Mapped[bytes | None] = mapped_column(LargeBinary, default=None)
     api_key_dek: Mapped[bytes | None] = mapped_column(LargeBinary, default=None)
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
     updated_at: Mapped[datetime] = mapped_column(
-        server_default=func.now(), onupdate=func.now()
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

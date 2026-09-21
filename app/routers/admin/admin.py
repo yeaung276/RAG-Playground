@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 
 from app.dependencies.admin import require_admin
-from app.routers.admin import agents, auth, chat, datasets, files, kb, models, notifications
+from app.routers.admin import agents, auth, chat, datasets, experiments, files, kb, models, notifications
 
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -10,6 +10,7 @@ router.include_router(auth.router)
 router.include_router(agents.router, dependencies=[Depends(require_admin)])
 router.include_router(chat.router, dependencies=[Depends(require_admin)])
 router.include_router(datasets.router, dependencies=[Depends(require_admin)])
+router.include_router(experiments.router, dependencies=[Depends(require_admin)])
 router.include_router(files.router, dependencies=[Depends(require_admin)])
 router.include_router(kb.router, dependencies=[Depends(require_admin)])
 router.include_router(models.router, dependencies=[Depends(require_admin)])

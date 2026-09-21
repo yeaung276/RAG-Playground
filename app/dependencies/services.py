@@ -14,6 +14,7 @@ from app.services.models.model_service import ModelService
 from app.services.admin.admin_session_service import AdminSessionService
 from app.services.admin.priority_service import PriorityService
 from app.services.dataset.dataset_service import DatasetService
+from app.services.dataset.experimentation_service import ExperimentationService
 from app.backgrounds.dataset_processor import DatasetProcessor
 from app.backgrounds.files_processor import FileProcessor
 from app.db.qdrant import qdrant
@@ -108,6 +109,15 @@ def get_dataset_service(
     session: AsyncSession = Depends(get_session),
 ) -> DatasetService:
     return DatasetService(session=session, storage=get_storage())
+
+
+def get_experimentation_service(
+    session: AsyncSession = Depends(get_session),
+    kb_service: KnowledgeBaseService = Depends(get_kb_service),
+) -> ExperimentationService:
+    return ExperimentationService(
+        session=session, storage=get_storage(), kb_service=kb_service
+    )
 
 
 def get_dataset_processor() -> DatasetProcessor:

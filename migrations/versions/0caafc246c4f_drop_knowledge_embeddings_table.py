@@ -33,19 +33,19 @@ def upgrade() -> None:
 def downgrade() -> None:
     # op.execute('CREATE EXTENSION IF NOT EXISTS vector')
     op.create_table('knowledge_embeddings',
-    sa.Column('id', sa.String(), nullable=False),
-    sa.Column('chunk_id', sa.String(), nullable=False),
-    sa.Column('node_id', sa.String(), nullable=False),
-    sa.Column('kb_id', sa.String(), nullable=False),
-    sa.Column('content', sa.String(), nullable=False),
-    sa.Column('source', sa.String(), nullable=False),
-    sa.Column('pages', sa.JSON(), nullable=False),
-    # sa.Column('embedding', Vector(), nullable=False),
-    sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
-    sa.ForeignKeyConstraint(['chunk_id'], ['knowledge_chunks.id'], ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['kb_id'], ['knowledge_bases.id'], ),
-    sa.ForeignKeyConstraint(['node_id'], ['knowledge_nodes.id'], ),
-    sa.PrimaryKeyConstraint('id')
+        sa.Column('id', sa.String(), nullable=False),
+        sa.Column('chunk_id', sa.String(), nullable=False),
+        sa.Column('node_id', sa.String(), nullable=False),
+        sa.Column('kb_id', sa.String(), nullable=False),
+        sa.Column('content', sa.String(), nullable=False),
+        sa.Column('source', sa.String(), nullable=False),
+        sa.Column('pages', sa.JSON(), nullable=False),
+        # sa.Column('embedding', Vector(), nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+        sa.ForeignKeyConstraint(['chunk_id'], ['knowledge_chunks.id'], ondelete='CASCADE'),
+        sa.ForeignKeyConstraint(['kb_id'], ['knowledge_bases.id'], ),
+        sa.ForeignKeyConstraint(['node_id'], ['knowledge_nodes.id'], ),
+        sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_knowledge_embeddings_chunk_id'), 'knowledge_embeddings', ['chunk_id'], unique=False)
     op.create_index(op.f('ix_knowledge_embeddings_kb_id'), 'knowledge_embeddings', ['kb_id'], unique=False)

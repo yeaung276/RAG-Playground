@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, ForeignKey, Index, LargeBinary, UniqueConstraint, func, text
+from sqlalchemy import DateTime, ForeignKey, Index, JSON, LargeBinary, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -53,7 +53,9 @@ class Agent(Base):
     )
     is_entrypoint: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
     tools_dek: Mapped[bytes | None] = mapped_column(LargeBinary, default=None)
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
     updated_at: Mapped[datetime] = mapped_column(
-        server_default=func.now(), onupdate=func.now()
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

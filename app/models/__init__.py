@@ -7,5 +7,6 @@ from app.models.admin import Admin
 from app.models.model import Model
 from app.models.agent import Agent
 from app.models.dataset import Dataset
+from app.models.experiment import Experiment
 
-__all__ = ["KnowledgeBase", "Node", "Chunk", "Session", "Message", "Admin", "Model", "Agent", "Dataset"]
+__all__ = ["KnowledgeBase", "Node", "Chunk", "Session", "Message", "Admin", "Model", "Agent", "Dataset", "Experiment"]
