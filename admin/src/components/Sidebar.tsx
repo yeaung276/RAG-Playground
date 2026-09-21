@@ -1,5 +1,13 @@
 import { NavLink, useNavigate } from 'react-router-dom';
-import { BookOpen, Bot, Boxes, FileText, SlidersHorizontal, LogOut } from 'lucide-react';
+import {
+  BookOpen,
+  Bot,
+  Boxes,
+  FileText,
+  FlaskConical,
+  SlidersHorizontal,
+  LogOut,
+} from 'lucide-react';
 import { useLogout, useMe } from '../api/auth';
 
 const items = [
@@ -7,6 +15,7 @@ const items = [
   { to: '/agents', label: 'Agents', icon: Bot },
   { to: '/knowledge', label: 'Knowledge', icon: BookOpen },
   { to: '/models', label: 'Models', icon: Boxes },
+  { to: '/evaluation', label: 'Evaluation', icon: FlaskConical },
   { to: '/docs', label: 'Docs', icon: FileText },
 ];
 
