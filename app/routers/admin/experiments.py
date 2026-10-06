@@ -8,7 +8,12 @@ from app.dependencies.services import (
     get_evaluation_processor,
     get_experimentation_service,
 )
-from app.schemas.experiment import ExperimentCreate, ExperimentPage, ExperimentRead
+from app.schemas.experiment import (
+    ExperimentCreate,
+    ExperimentPage,
+    ExperimentRead,
+    ExperimentScores,
+)
 from app.services.dataset.experiment_service import ExperimentationService
 
 router = APIRouter(prefix="/experiments", tags=["experiments"])
@@ -36,12 +41,32 @@ async def list_experiments(
     return await svc.list(page=page, page_size=page_size, dataset_id=dataset_id)
 
 
+@router.get("/score_board", response_model=list[ExperimentScores])
+async def get_score_board(
+    dataset_id: str = Query(alias="datasetId"),
+    svc: ExperimentationService = Depends(get_experimentation_service),
+):
+    return await svc.score_board(dataset_id)
+
+
 @router.get("/{experiment_id}", response_model=ExperimentRead)
 async def get_experiment(
     experiment_id: str,
     svc: ExperimentationService = Depends(get_experimentation_service),
 ):
     return await svc.get(experiment_id)
+
+
+@router.post("/{experiment_id}/rerun", response_model=ExperimentRead)
+async def rerun_experiment(
+    experiment_id: str,
+    background_tasks: BackgroundTasks,
+    svc: ExperimentationService = Depends(get_experimentation_service),
+    processor: EvaluationProcessor = Depends(get_evaluation_processor),
+):
+    experiment = await svc.clear_result(experiment_id)
+    background_tasks.add_task(processor.run, experiment.id, skip_indexing=True)
+    return experiment
 
 
 @router.get("/{experiment_id}/best", response_model=dict[str, float])

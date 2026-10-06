@@ -27,6 +27,7 @@ export interface RetrievalConfig {
 
 export interface Experiment {
   id: string;
+  name: string;
   datasetId: string;
   knowledgeId: string | null;
   kbConfig: KnowledgeBaseConfig | null;
@@ -39,11 +40,30 @@ export interface Experiment {
   updatedAt: string;
 }
 
+export interface ExperimentSummary {
+  id: string;
+  name: string;
+  indexTypes: RetrievalConfig['indexTypes'];
+  topK: number | null;
+  rerankOn: RetrievalConfig['rerankOn'];
+  metricCount: number;
+  status: ExperimentStatus;
+  error: string | null;
+  createdAt: string;
+}
+
 export interface ExperimentPage {
-  items: Experiment[];
+  items: ExperimentSummary[];
   total: number;
   page: number;
   pageSize: number;
+}
+
+export interface ExperimentScores {
+  id: string;
+  name: string;
+  createdAt: string;
+  scores: Partial<Record<Metric, number>>;
 }
 
 export interface ExperimentInput {
@@ -102,6 +122,15 @@ export function useExperiments(page = 1, pageSize = 20, datasetId: string | null
   });
 }
 
+/** Scores of every successful run on a dataset, oldest first. */
+export function useScoreBoard(datasetId: string) {
+  const params = new URLSearchParams({ datasetId });
+  return useQuery({
+    queryKey: ['experiments', 'score_board', datasetId] as const,
+    queryFn: () => requestAt<ExperimentScores[]>(`${BASE}/score_board?${params}`),
+  });
+}
+
 export function useExperiment(id: string | null) {
   return useQuery({
     queryKey: keys.one(id ?? ''),
@@ -117,6 +146,14 @@ export function useCreateExperiment() {
   return useMutation({
     mutationFn: (values: ExperimentInput) =>
       requestAt<Experiment>(BASE, { method: 'POST', json: values }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['experiments'] }),
+  });
+}
+
+export function useRerunExperiment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => requestAt<Experiment>(`${BASE}/${id}/rerun`, { method: 'POST' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['experiments'] }),
   });
 }

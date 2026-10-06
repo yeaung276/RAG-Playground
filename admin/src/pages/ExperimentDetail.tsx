@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, FlaskConical, Loader2, Tag } from 'lucide-react';
+import { ArrowLeft, FlaskConical, Loader2, RotateCw, Tag, XCircle } from 'lucide-react';
 import Header from '../components/Header';
 import Modal from '../components/Modal';
 import Spec from '../components/Spec';
@@ -16,6 +16,7 @@ import {
   useBestScores,
   useExperiment,
   useExperimentResult,
+  useRerunExperiment,
   type ExperimentResult,
   type Metric,
   type PairStatus,
@@ -66,6 +67,8 @@ export default function ExperimentDetail() {
   const navigate = useNavigate();
   const { id = '' } = useParams();
   const { data: experiment } = useExperiment(id);
+  const failed = experiment?.status === 'failed';
+  const rerun = useRerunExperiment();
   const { data: dataset } = useDataset(experiment?.datasetId ?? '');
   const modelName = useModelName();
 
@@ -157,7 +160,7 @@ export default function ExperimentDetail() {
           </button>
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-base font-semibold text-slate-900">
-              {dataset?.name ?? '—'}
+              {experiment?.name ?? '—'}
             </h2>
             <p className="text-xs text-slate-400">
               {dataset && experiment
@@ -165,6 +168,13 @@ export default function ExperimentDetail() {
                 : 'Loading…'}
             </p>
           </div>
+          <button
+            onClick={() => rerun.mutate(id)}
+            disabled={rerun.isPending}
+            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+          >
+            <RotateCw size={14} className={rerun.isPending ? 'animate-spin' : ''} /> Rerun
+          </button>
         </div>
 
         {/* 1 — the config, frozen when the experiment was created */}
@@ -183,104 +193,118 @@ export default function ExperimentDetail() {
           </div>
         </section>
 
-        {/* 2 — where it moved */}
-        <section className="mb-4 rounded-2xl border border-slate-200 bg-white p-5">
-          <div className="mb-4 flex items-baseline justify-between">
-            <h3 className="text-sm font-semibold text-slate-900">Metrics</h3>
-            <span className="text-xs text-slate-400">tick marks the best so far on this dataset</span>
-          </div>
-
-          <div className="flex flex-wrap gap-x-8 gap-y-4">
-            {meters.map((m) => (
-              <Meter
-                key={m.metric}
-                label={METRIC_LABELS[m.metric]}
-                score={m.score}
-                baseline={m.best}
-                tone={METRIC_TONE[m.metric]}
-              />
-            ))}
-          </div>
-        </section>
-
-        <div className="mb-4 grid gap-4 lg:grid-cols-2">
-          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-            <h3 className="border-b border-slate-100 px-5 py-3.5 text-sm font-semibold text-slate-900">
-              By category
-            </h3>
-            <Breakdown rows={byCategory} dotted />
+        {failed ? (
+          <section className="mb-4 flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-5">
+            <XCircle size={18} className="mt-0.5 shrink-0 text-red-600" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-red-700">Run failed</p>
+              <p className="mt-1 whitespace-pre-wrap break-words text-xs text-red-600">
+                {experiment?.error ?? 'The run did not finish.'}
+              </p>
+            </div>
           </section>
-
-          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-            <h3 className="flex items-center gap-2 border-b border-slate-100 px-5 py-3.5 text-sm font-semibold text-slate-900">
-              <Tag size={15} className="text-slate-400" /> By label
-            </h3>
-            <Breakdown rows={byLabel} />
-          </section>
-        </div>
-
-        {/* 3 — each pair */}
-        <section className="mb-4 overflow-hidden rounded-2xl border border-slate-200 bg-white">
-          <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-5 py-3.5">
-            <h3 className="mr-auto text-sm font-semibold text-slate-900">Results</h3>
-            <select
-              className={filter}
-              value={status}
-              onChange={(e) => setStatus(e.target.value as PairStatus | 'any')}
-            >
-              <option value="any">any status</option>
-              {STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-            <select
-              className={filter}
-              value={category}
-              onChange={(e) => setCategory(e.target.value as Category | 'any')}
-            >
-              <option value="any">any category</option>
-              {CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-            <select className={filter} value={label} onChange={(e) => setLabel(e.target.value)}>
-              <option value="any">any label</option>
-              {byLabel.map(({ name }) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {result.isLoading ? (
-            <p className="flex items-center justify-center gap-2 px-5 py-10 text-sm text-slate-400">
-              <Loader2 size={15} className="animate-spin" /> Downloading results…
-            </p>
-          ) : shown.length ? (
-            <>
-              <ul className="divide-y divide-slate-100">
-                {visible.map((pair, i) => (
-                  <Result key={start + i} pair={pair} onOpen={() => setOpened(pair)} />
-                ))}
-              </ul>
-              <div className="flex items-center justify-between border-t border-slate-100 px-5 py-3 text-xs text-slate-500">
-                <span>
-                  {start + 1}–{start + visible.length} of {shown.length}
-                </span>
-                <Pager page={current} pageCount={pageCount} onPage={setPage} />
+        ) : (
+          <>
+            {/* 2 — where it moved */}
+            <section className="mb-4 rounded-2xl border border-slate-200 bg-white p-5">
+              <div className="mb-4 flex items-baseline justify-between">
+                <h3 className="text-sm font-semibold text-slate-900">Metrics</h3>
+                <span className="text-xs text-slate-400">tick marks the best so far on this dataset</span>
               </div>
-            </>
-          ) : (
-            <p className="px-5 py-10 text-center text-sm text-slate-400">
-              {all.length ? 'No pair matches these filters.' : 'No results yet.'}
-            </p>
-          )}
-        </section>
+
+              <div className="flex flex-wrap gap-x-8 gap-y-4">
+                {meters.map((m) => (
+                  <Meter
+                    key={m.metric}
+                    label={METRIC_LABELS[m.metric]}
+                    score={m.score}
+                    baseline={m.best}
+                    tone={METRIC_TONE[m.metric]}
+                  />
+                ))}
+              </div>
+            </section>
+
+            <div className="mb-4 grid gap-4 lg:grid-cols-2">
+              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                <h3 className="border-b border-slate-100 px-5 py-3.5 text-sm font-semibold text-slate-900">
+                  By category
+                </h3>
+                <Breakdown rows={byCategory} dotted />
+              </section>
+
+              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                <h3 className="flex items-center gap-2 border-b border-slate-100 px-5 py-3.5 text-sm font-semibold text-slate-900">
+                  <Tag size={15} className="text-slate-400" /> By label
+                </h3>
+                <Breakdown rows={byLabel} />
+              </section>
+            </div>
+
+            {/* 3 — each pair */}
+            <section className="mb-4 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+              <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-5 py-3.5">
+                <h3 className="mr-auto text-sm font-semibold text-slate-900">Results</h3>
+                <select
+                  className={filter}
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value as PairStatus | 'any')}
+                >
+                  <option value="any">any status</option>
+                  {STATUSES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className={filter}
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value as Category | 'any')}
+                >
+                  <option value="any">any category</option>
+                  {CATEGORIES.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+                <select className={filter} value={label} onChange={(e) => setLabel(e.target.value)}>
+                  <option value="any">any label</option>
+                  {byLabel.map(({ name }) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {result.isLoading ? (
+                <p className="flex items-center justify-center gap-2 px-5 py-10 text-sm text-slate-400">
+                  <Loader2 size={15} className="animate-spin" /> Downloading results…
+                </p>
+              ) : shown.length ? (
+                <>
+                  <ul className="divide-y divide-slate-100">
+                    {visible.map((pair, i) => (
+                      <Result key={start + i} pair={pair} onOpen={() => setOpened(pair)} />
+                    ))}
+                  </ul>
+                  <div className="flex items-center justify-between border-t border-slate-100 px-5 py-3 text-xs text-slate-500">
+                    <span>
+                      {start + 1}–{start + visible.length} of {shown.length}
+                    </span>
+                    <Pager page={current} pageCount={pageCount} onPage={setPage} />
+                  </div>
+                </>
+              ) : (
+                <p className="px-5 py-10 text-center text-sm text-slate-400">
+                  {all.length ? 'No pair matches these filters.' : 'No results yet.'}
+                </p>
+              )}
+            </section>
+          </>
+        )}
       </main>
 
       <PairDetail pair={opened} onClose={() => setOpened(null)} />

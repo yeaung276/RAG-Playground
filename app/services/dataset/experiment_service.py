@@ -1,10 +1,18 @@
+from typing import List
+
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.dataset import Dataset
 from app.models.experiment import Experiment
 from app.schemas.agent import KnowledgeConfig
-from app.schemas.experiment import ExperimentCreate, ExperimentPage, ExperimentRead
+from app.schemas.experiment import (
+    ExperimentCreate,
+    ExperimentPage,
+    ExperimentRead,
+    ExperimentScores,
+    ExperimentSummary,
+)
 from app.services.errors import NotFoundError
 from app.services.knowledge.kb_service import KnowledgeBaseService
 from app.services.retrieval.document import KbConfig
@@ -28,15 +36,23 @@ class ExperimentationService:
         if dataset is None:
             raise NotFoundError(f"Dataset {payload.dataset_id} not found")
 
+        runs = await self.session.scalar(
+            select(func.count())
+            .select_from(Experiment)
+            .where(Experiment.dataset_id == dataset.id)
+        )
+        name = f"{dataset.name} #{(runs or 0) + 1}"
+
         knowledge_id = payload.knowledge_id
         if knowledge_id is None:
             created = await self.kb_service.create(
-                name=f"exp-{dataset.name}", config=payload.kb_config
+                name=f"exp-{name}", config=payload.kb_config
             )
             knowledge_id = created.id
         kb = await self.kb_service.get(knowledge_id)
 
         experiment = Experiment(
+            name=name,
             dataset_id=dataset.id,
             knowledge_id=kb.id,
             snapshot_retrieval_config={
@@ -76,7 +92,7 @@ class ExperimentationService:
             .all()
         )
         return ExperimentPage(
-            items=[self._to_read(experiment) for experiment in rows],
+            items=[self._to_summary(experiment) for experiment in rows],
             total=total,
             page=page,
             page_size=page_size,
@@ -84,6 +100,15 @@ class ExperimentationService:
 
     async def get(self, experiment_id: str) -> ExperimentRead:
         return self._to_read(await self._get(experiment_id))
+
+    async def score_board(self, dataset_id: str) -> List[ExperimentScores]:
+        """Scores of every successful run on a dataset, oldest first."""
+        rows = await self.session.scalars(
+            select(Experiment)
+            .where(Experiment.dataset_id == dataset_id, Experiment.status == "success")
+            .order_by(Experiment.created_at)
+        )
+        return [ExperimentScores.model_validate(experiment) for experiment in rows]
 
     async def best_scores(self, experiment_id: str) -> dict[str, float]:
         """Best score per metric across successful runs on the same dataset made before this one."""
@@ -101,6 +126,16 @@ class ExperimentationService:
                 best[metric] = max(score, best.get(metric, score))
         return best
 
+    async def clear_result(self, experiment_id: str) -> ExperimentRead:
+        experiment = await self._get(experiment_id)
+        experiment.status = "pending"
+        experiment.error = None
+        experiment.scores = None
+        experiment.result_path = None
+        await self.session.commit()
+        await self.session.refresh(experiment)
+        return self._to_read(experiment)
+
     async def read_result(self, experiment_id: str) -> tuple[str, bytes]:
         experiment = await self._get(experiment_id)
         if not experiment.result_path:
@@ -115,9 +150,25 @@ class ExperimentationService:
         return experiment
 
     @staticmethod
+    def _to_summary(experiment: Experiment) -> ExperimentSummary:
+        config = KnowledgeConfig(**experiment.snapshot_retrieval_config)
+        return ExperimentSummary(
+            id=experiment.id,
+            name=experiment.name,
+            index_types=config.index_types,
+            top_k=config.top_k,
+            rerank_on=config.rerank_on,
+            metric_count=len(experiment.metrics),
+            status=experiment.status,
+            error=experiment.error,
+            created_at=experiment.created_at,
+        )
+
+    @staticmethod
     def _to_read(experiment: Experiment) -> ExperimentRead:
         return ExperimentRead(
             id=experiment.id,
+            name=experiment.name,
             dataset_id=experiment.dataset_id,
             knowledge_id=experiment.knowledge_id,
             kb_config=KbConfig(**experiment.snapshot_kb_config),

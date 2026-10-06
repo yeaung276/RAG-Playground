@@ -16,7 +16,7 @@ from app.schemas.model import (
 )
 from app.services.errors import ConflictError, NotFoundError
 from app.services.models.embedding import Embedder, OpenAIEmbedder, TEIEmbedder
-from app.services.models.rerank import Reranker, TEIReranker
+from app.services.models.rerank import CohereReranker, Reranker, TEIReranker
 from app.utils.crypto import decrypt_secret, encrypt_secret
 
 logger = get_logger(__name__)
@@ -131,6 +131,8 @@ class ModelService:
                 return TEIEmbedder(model.name, model.base_url, api_key, **kwargs)
             case Capability.CROSS_ENCODER, ApiSchema.TEI:
                 return TEIReranker(model.name, model.base_url, api_key, **kwargs)
+            case Capability.CROSS_ENCODER, ApiSchema.COHERE:
+                return CohereReranker(model.name, model.base_url, api_key, **kwargs)
 
         raise ConflictError(f"{model.schema} does not serve {model.capability} models")
 

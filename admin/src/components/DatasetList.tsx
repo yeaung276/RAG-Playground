@@ -8,7 +8,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { errorMessage } from '../api/client';
-import { useDatasets, useRetryDataset, type Dataset } from '../api/datasets';
+import { useDatasets, useRetryDataset, type DatasetSummary } from '../api/datasets';
 import { CATEGORIES, CATEGORY_DOT } from './categories';
 
 function ago(iso: string) {
@@ -71,7 +71,7 @@ export default function DatasetList({ onOpen }: { onOpen: (id: string) => void }
   );
 }
 
-function Row({ dataset, onOpen }: { dataset: Dataset; onOpen: (id: string) => void }) {
+function Row({ dataset, onOpen }: { dataset: DatasetSummary; onOpen: (id: string) => void }) {
   const { status, fileCount, parsedCount, pairCount } = dataset;
   const retry = useRetryDataset();
 
@@ -136,7 +136,7 @@ function Row({ dataset, onOpen }: { dataset: Dataset; onOpen: (id: string) => vo
           <p className="truncate text-sm font-medium text-slate-900">{dataset.name}</p>
           <p className="mt-0.5 truncate text-xs text-slate-400">
             {pairCount} pairs · {fileCount} files
-            {dataset.model ? ` · ${dataset.model.name}` : ''} · {ago(dataset.createdAt)}
+            {dataset.modelName ? ` · ${dataset.modelName}` : ''} · {ago(dataset.createdAt)}
           </p>
         </div>
         <div className="hidden w-48 shrink-0 sm:block">

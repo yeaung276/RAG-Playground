@@ -12,8 +12,7 @@ import {
 import ExperimentForm from './ExperimentForm';
 import { errorMessage } from '../api/client';
 import { indexTypeName } from '../api/config';
-import { useDatasets } from '../api/datasets';
-import { useExperiments, type Experiment } from '../api/experiments';
+import { useExperiments, type ExperimentSummary } from '../api/experiments';
 import { useModelName } from '../api/models';
 import { formatRelative } from '../utils/format';
 
@@ -29,7 +28,6 @@ export default function ExperimentList({
   onOpen?: (id: string) => void;
 }) {
   const { data, isLoading, error, refetch, isFetching } = useExperiments(1, 20, datasetId);
-  const { data: datasets } = useDatasets();
   const [newExperiment, setNewExperiment] = useState(false);
 
   if (isLoading) {
@@ -86,12 +84,7 @@ export default function ExperimentList({
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
       <ul className="divide-y divide-slate-100">
         {data.items.map((experiment) => (
-          <Row
-            key={experiment.id}
-            experiment={experiment}
-            dataset={datasets?.items.find((d) => d.id === experiment.datasetId)?.name ?? '—'}
-            onOpen={onOpen}
-          />
+          <Row key={experiment.id} experiment={experiment} onOpen={onOpen} />
         ))}
       </ul>
     </section>
@@ -100,27 +93,27 @@ export default function ExperimentList({
 
 function Row({
   experiment,
-  dataset,
   onOpen,
 }: {
-  experiment: Experiment;
-  dataset: string;
+  experiment: ExperimentSummary;
   onOpen?: (id: string) => void;
 }) {
-  const { status, retrievalConfig: config } = experiment;
+  const { status } = experiment;
   const modelName = useModelName();
   const setup = [
-    config.indexTypes.map((t) => indexTypeName(t, modelName)).join(' + '),
-    `top ${config.topK ?? '—'}`,
-    config.rerankOn ? `rerank ${config.rerankOn}` : 'no rerank',
+    experiment.indexTypes.map((t) => indexTypeName(t, modelName)).join(' + '),
+    `top ${experiment.topK ?? '—'}`,
+    experiment.rerankOn ? `rerank ${experiment.rerankOn}` : 'no rerank',
     formatRelative(new Date(experiment.createdAt).getTime()),
   ].join(' · ');
+  const open = onOpen && (() => onOpen(experiment.id));
+  const row = `flex items-center gap-4 px-5 py-4 ${onOpen ? 'cursor-pointer hover:bg-slate-50' : ''}`;
 
   if (status === 'failed') {
     return (
-      <li className="flex items-center gap-4 px-5 py-4">
+      <li onClick={open} className={row}>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-slate-900">{dataset}</p>
+          <p className="truncate text-sm font-medium text-slate-900">{experiment.name}</p>
           <p className="mt-0.5 truncate text-xs text-red-500">
             Failed · {experiment.error ?? 'the run did not finish'}
           </p>
@@ -128,6 +121,7 @@ function Row({
         <span className={`${pill} bg-red-50 text-red-700`}>
           <XCircle size={12} /> Failed
         </span>
+        {onOpen && <ChevronRight size={16} className="text-slate-300" />}
       </li>
     );
   }
@@ -139,9 +133,9 @@ function Row({
       running: ['Scoring', 'Running'],
     }[status];
     return (
-      <li className="flex items-center gap-4 px-5 py-4">
+      <li onClick={open} className={row}>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-slate-900">{dataset}</p>
+          <p className="truncate text-sm font-medium text-slate-900">{experiment.name}</p>
           <p className="mt-0.5 truncate text-xs text-slate-400">
             {stage} · {setup}
           </p>
@@ -149,21 +143,17 @@ function Row({
         <span className={`${pill} bg-indigo-50 text-indigo-700`}>
           <Clock3 size={12} /> {label}
         </span>
+        {onOpen && <ChevronRight size={16} className="text-slate-300" />}
       </li>
     );
   }
 
   return (
-    <li
-      onClick={onOpen && (() => onOpen(experiment.id))}
-      className={`flex items-center gap-4 px-5 py-4 ${
-        onOpen ? 'cursor-pointer hover:bg-slate-50' : ''
-      }`}
-    >
+    <li onClick={open} className={row}>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-slate-900">{dataset}</p>
+        <p className="truncate text-sm font-medium text-slate-900">{experiment.name}</p>
         <p className="mt-0.5 truncate text-xs text-slate-400">
-          {setup} · {experiment.metrics.length} metrics
+          {setup} · {experiment.metricCount} metrics
         </p>
       </div>
       <span className={`${pill} bg-green-50 text-green-700`}>

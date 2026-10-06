@@ -23,8 +23,22 @@ export interface Dataset {
   updatedAt: string;
 }
 
+export interface DatasetSummary {
+  id: string;
+  name: string;
+  modelName: string | null;
+  mix: Record<Category, number>;
+  labels: string[];
+  status: DatasetStatus;
+  error: string | null;
+  fileCount: number;
+  parsedCount: number;
+  pairCount: number;
+  createdAt: string;
+}
+
 export interface DatasetPage {
-  items: Dataset[];
+  items: DatasetSummary[];
   total: number;
   page: number;
   pageSize: number;

@@ -32,10 +32,10 @@ class EvaluationProcessor:
         self.evaluation = evaluation
         self.session_maker = session_maker
 
-    async def run(self, experiment_id: str) -> None:
+    async def run(self, experiment_id: str, skip_indexing: bool = False) -> None:
         try:
             experiment = await self._get_experiment(experiment_id)
-            if not experiment.snapshot_retrieval_config["skip_dataset_indexing"]:
+            if not (skip_indexing or experiment.snapshot_retrieval_config["skip_dataset_indexing"]):
                 await self._update_experiment(experiment_id, status="importing")
                 await self._index_dataset_into_kb(experiment)
             await self._update_experiment(experiment_id, status="running")

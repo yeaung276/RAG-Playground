@@ -11,6 +11,7 @@ import {
 import Header from '../components/Header';
 import ExperimentForm from '../components/ExperimentForm';
 import ExperimentList from '../components/ExperimentList';
+import ScoreBoard from '../components/ScoreBoard';
 import Spec from '../components/Spec';
 import PairTags from '../components/PairTags';
 import Pager from '../components/Pager';
@@ -158,10 +159,16 @@ export default function DatasetDetail() {
             </button>
           </section>
         ) : tab === 'experiments' ? (
-          <ExperimentList
-            datasetId={id}
-            onOpen={(experimentId) => navigate(`/evaluation/experiments/${experimentId}`)}
-          />
+          <>
+            <ScoreBoard
+              datasetId={id}
+              onOpen={(experimentId) => navigate(`/evaluation/experiments/${experimentId}`)}
+            />
+            <ExperimentList
+              datasetId={id}
+              onOpen={(experimentId) => navigate(`/evaluation/experiments/${experimentId}`)}
+            />
+          </>
         ) : (
           <>
             <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-5">

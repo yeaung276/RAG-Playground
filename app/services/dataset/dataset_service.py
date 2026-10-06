@@ -5,7 +5,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.dataset import Dataset
 from app.models.model import Model
-from app.schemas.dataset import DatasetCreate, DatasetModel, DatasetPage, DatasetRead
+from app.schemas.dataset import (
+    DatasetCreate,
+    DatasetModel,
+    DatasetPage,
+    DatasetRead,
+    DatasetSummary,
+)
 from app.services.errors import BadRequestError, ConflictError, NotFoundError
 from app.storage import Storage
 
@@ -60,7 +66,7 @@ class DatasetService:
             )
         ).all()
         return DatasetPage(
-            items=[self._to_read(d, m) for d, m in rows],
+            items=[self._to_summary(d, m) for d, m in rows],
             total=total,
             page=page,
             page_size=page_size,
@@ -98,6 +104,22 @@ class DatasetService:
             await self.session.get(Model, dataset.model_id) if dataset.model_id else None
         )
         return self._to_read(dataset, model)
+
+    @staticmethod
+    def _to_summary(dataset: Dataset, model: Model | None) -> DatasetSummary:
+        return DatasetSummary(
+            id=dataset.id,
+            name=dataset.name,
+            model_name=model.name if model else None,
+            mix=dataset.mix,
+            labels=dataset.labels,
+            status=dataset.status,
+            error=dataset.error,
+            file_count=dataset.file_count,
+            parsed_count=dataset.parsed_count,
+            pair_count=dataset.pair_count,
+            created_at=dataset.created_at,
+        )
 
     @staticmethod
     def _to_read(dataset: Dataset, model: Model | None) -> DatasetRead:

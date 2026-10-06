@@ -61,8 +61,22 @@ class DatasetRead(CamelModel):
     updated_at: datetime
 
 
+class DatasetSummary(CamelModel):
+    id: str
+    name: str
+    model_name: str | None
+    mix: dict[Category, int]
+    labels: list[str]
+    status: DatasetStatus
+    error: str | None
+    file_count: int
+    parsed_count: int
+    pair_count: int
+    created_at: datetime
+
+
 class DatasetPage(CamelModel):
-    items: list[DatasetRead]
+    items: list[DatasetSummary]
     total: int
     page: int
     page_size: int

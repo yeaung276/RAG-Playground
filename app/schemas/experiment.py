@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
-from app.schemas.agent import KnowledgeConfig
+from app.schemas.agent import IndexSpec, KnowledgeConfig
 from app.schemas.base import CamelModel
 from app.services.retrieval.document import KbConfig
 
@@ -36,6 +36,7 @@ class ExperimentCreate(CamelModel):
 
 class ExperimentRead(CamelModel):
     id: str
+    name: str
     dataset_id: str
     knowledge_id: str | None
     kb_config: KbConfig | None
@@ -48,8 +49,27 @@ class ExperimentRead(CamelModel):
     updated_at: datetime
 
 
+class ExperimentSummary(CamelModel):
+    id: str
+    name: str
+    index_types: list[IndexSpec]
+    top_k: int | None
+    rerank_on: Literal["parent", "child"] | None
+    metric_count: int
+    status: ExperimentStatus
+    error: str | None
+    created_at: datetime
+
+
+class ExperimentScores(CamelModel):
+    id: str
+    name: str
+    created_at: datetime
+    scores: dict[str, float]
+
+
 class ExperimentPage(CamelModel):
-    items: list[ExperimentRead]
+    items: list[ExperimentSummary]
     total: int
     page: int
     page_size: int

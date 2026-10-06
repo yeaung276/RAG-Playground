@@ -15,6 +15,7 @@ class Experiment(Base):
     __tablename__ = "experiments"
 
     id: Mapped[str] = mapped_column(primary_key=True, default=new_id)
+    name: Mapped[str]
     dataset_id: Mapped[str] = mapped_column(
         ForeignKey("datasets.id", ondelete="CASCADE"), index=True
     )
