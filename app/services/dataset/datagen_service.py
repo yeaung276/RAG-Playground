@@ -28,7 +28,7 @@ class Sample(BaseModel):
     context: str = Field(description="Verbatim excerpt the answer is drawn from")
     question: str
     answer: str
-    category: Category
+    category: Category | None = None
     labels: list[str] = Field(default_factory=list)
 
 
@@ -53,7 +53,9 @@ class DataGenerationService:
         )
         allowed = ", ".join(lables) if lables else "(none — leave labels empty)"
 
-        result = await self.llm.with_structured_output(SampleBatch).ainvoke(
+        # thinking mode breaks structured output on some providers
+        llm = self.llm.model_copy(update={"extra_body": {"thinking": {"type": "disabled"}}})
+        result = await llm.with_structured_output(SampleBatch).ainvoke(
             [
                 SystemMessage(SYSTEM_PROMPT),
                 HumanMessage(

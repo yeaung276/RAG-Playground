@@ -11,9 +11,10 @@ import {
 } from 'lucide-react';
 import ExperimentForm from './ExperimentForm';
 import { errorMessage } from '../api/client';
+import { indexTypeName } from '../api/config';
 import { useDatasets } from '../api/datasets';
 import { useExperiments, type Experiment } from '../api/experiments';
-import { useModels } from '../api/models';
+import { useModelName } from '../api/models';
 import { formatRelative } from '../utils/format';
 
 const shell = 'rounded-2xl border border-slate-200 bg-white px-5 py-10 text-center';
@@ -107,15 +108,9 @@ function Row({
   onOpen?: (id: string) => void;
 }) {
   const { status, retrievalConfig: config } = experiment;
-  const { data: embeddingModels } = useModels(1, 'bi-encoder', 100);
+  const modelName = useModelName();
   const setup = [
-    config.indexTypes
-      .map((t) =>
-        t.type === 'bm25'
-          ? 'BM25'
-          : (embeddingModels?.items.find((m) => m.id === t.modelId)?.name ?? t.modelId),
-      )
-      .join(' + '),
+    config.indexTypes.map((t) => indexTypeName(t, modelName)).join(' + '),
     `top ${config.topK ?? '—'}`,
     config.rerankOn ? `rerank ${config.rerankOn}` : 'no rerank',
     formatRelative(new Date(experiment.createdAt).getTime()),

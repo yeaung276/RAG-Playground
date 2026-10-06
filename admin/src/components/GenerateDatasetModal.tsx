@@ -2,17 +2,9 @@ import { useEffect, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { FileArchive, Sparkles, Tag, Upload, X } from 'lucide-react';
 import { z } from 'zod';
+import type { Category } from '../api/datasets';
 import { useModels } from '../api/models';
-
-/** Categories are structural — one per pair, fixed set. Labels are the user's own, many per pair. */
-const CATEGORY_DOT = {
-  simple: 'bg-indigo-500',
-  reasoning: 'bg-cyan-400',
-  multi_context: 'bg-amber-400',
-  conditional: 'bg-violet-400',
-} as const;
-
-type Category = keyof typeof CATEGORY_DOT;
+import { CATEGORIES, CATEGORY_DOT } from './categories';
 
 const CATEGORY_HINT: Record<Category, string> = {
   simple: 'Answered by one chunk, asked plainly.',
@@ -20,8 +12,6 @@ const CATEGORY_HINT: Record<Category, string> = {
   multi_context: 'Needs two or more chunks combined.',
   conditional: 'Answer depends on a condition in the question.',
 };
-
-const CATEGORIES = Object.keys(CATEGORY_DOT) as Category[];
 
 const slug = z.string().regex(/^[a-z0-9-]+$/, 'lowercase letters, digits and dashes only');
 

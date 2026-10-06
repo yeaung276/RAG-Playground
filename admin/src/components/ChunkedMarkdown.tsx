@@ -36,7 +36,8 @@ function combine(chunks: Chunk[]): { text: string; ranges: Range[] } {
   const ranges: Range[] = [];
   for (const c of chunks) {
     const start = text.length;
-    text += c.content.slice(overlapLen(text, c.content));
+    const k = overlapLen(text, c.content);
+    text += (text && k === 0 ? '\n\n' : '') + c.content.slice(k);
     ranges.push({ id: c.id, seq: c.seq, start, end: text.length });
   }
   return { text, ranges };

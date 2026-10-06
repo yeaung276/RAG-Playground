@@ -8,6 +8,13 @@ class NotFoundError(HTTPException):
         super().__init__(status_code=404, detail=detail)
 
 
+class BadRequestError(HTTPException):
+    """Request is not valid for the entity's current state."""
+
+    def __init__(self, detail: str = "Bad request") -> None:
+        super().__init__(status_code=400, detail=detail)
+
+
 class ConflictError(HTTPException):
     """Request conflicts with the current state."""
 

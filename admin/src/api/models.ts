@@ -61,6 +61,12 @@ export function useModels(page: number, capability: Capability | 'all', pageSize
   });
 }
 
+/** Resolves a model id to its name from the first 100 models; unknown ids show as-is. */
+export function useModelName() {
+  const { data } = useModels(1, 'all', 100);
+  return (id: string) => data?.items.find((m) => m.id === id)?.name ?? id;
+}
+
 export function useCreateModel() {
   const qc = useQueryClient();
   return useMutation({

@@ -10,7 +10,7 @@ import {
 import { useKnowledgeBases } from '../api/knowledge';
 import { useModels } from '../api/models';
 import { useDatasets } from '../api/datasets';
-import { useCreateExperiment, type Metric } from '../api/experiments';
+import { METRIC_LABELS, useCreateExperiment, type Metric } from '../api/experiments';
 import { errorMessage } from '../api/client';
 
 const input =
@@ -443,12 +443,12 @@ export default function ExperimentForm({
                 <div className="space-y-2">
                   {(
                     [
-                      ['context_precision', 'Context precision', 'retrieved chunks that are relevant'],
-                      ['context_recall', 'Context recall', 'relevant chunks that were retrieved'],
-                      ['hit_rate', 'Hit rate', 'the source chunk appears in the top-k'],
-                      ['mrr', 'MRR', 'how high the source chunk ranks'],
-                    ] satisfies [Metric, string, string][]
-                  ).map(([metric, name, why]) => (
+                      ['context_precision', 'retrieved chunks that are relevant'],
+                      ['context_recall', 'relevant chunks that were retrieved'],
+                      ['hit_rate', 'the source chunk appears in the top-k'],
+                      ['mrr', 'how high the source chunk ranks'],
+                    ] satisfies [Metric, string][]
+                  ).map(([metric, why]) => (
                     <label key={metric} className="flex items-start gap-2.5">
                       <input
                         type="checkbox"
@@ -458,7 +458,7 @@ export default function ExperimentForm({
                         className="mt-0.5 accent-indigo-600"
                       />
                       <span className="min-w-0">
-                        <span className="block text-sm text-slate-600">{name}</span>
+                        <span className="block text-sm text-slate-600">{METRIC_LABELS[metric]}</span>
                         <span className="block text-xs text-slate-400">{why}</span>
                       </span>
                     </label>

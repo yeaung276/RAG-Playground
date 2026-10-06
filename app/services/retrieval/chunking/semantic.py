@@ -36,8 +36,9 @@ class _TEIEmbeddings(Embeddings):
 
 
 class _CappedSemanticSplitter:
-    """Semantic split, then hard-cap: re-split any oversized parent with a
-    recursive splitter at max_chunk_size, preserving absolute start_index."""
+    """Semantic split, then hard-cap: re-split any oversized parent at max_chunk_size,
+    packing whole sentences and only cutting inside a sentence longer than the cap.
+    Preserves absolute start_index."""
 
     def __init__(self, embeddings: Embeddings, min_chunk_size: int, max_chunk_size: int):
         self._max = max_chunk_size
@@ -45,7 +46,11 @@ class _CappedSemanticSplitter:
             embeddings, add_start_index=True, min_chunk_size=min_chunk_size
         )
         self._cap = RecursiveCharacterTextSplitter(
-            chunk_size=max_chunk_size, chunk_overlap=0, add_start_index=True
+            separators=["\n\n", "\n", self._semantic.sentence_split_regex, " ", ""],
+            is_separator_regex=True,
+            chunk_size=max_chunk_size,
+            chunk_overlap=0,
+            add_start_index=True,
         )
 
     def split_documents(self, documents: list[LCDocument]) -> list[LCDocument]:

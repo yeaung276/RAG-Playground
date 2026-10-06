@@ -85,6 +85,22 @@ class ExperimentationService:
     async def get(self, experiment_id: str) -> ExperimentRead:
         return self._to_read(await self._get(experiment_id))
 
+    async def best_scores(self, experiment_id: str) -> dict[str, float]:
+        """Best score per metric across successful runs on the same dataset made before this one."""
+        experiment = await self._get(experiment_id)
+        rows = await self.session.scalars(
+            select(Experiment.scores).where(
+                Experiment.dataset_id == experiment.dataset_id,
+                Experiment.status == "success",
+                Experiment.created_at < experiment.created_at,
+            )
+        )
+        best: dict[str, float] = {}
+        for scores in rows:
+            for metric, score in (scores or {}).items():
+                best[metric] = max(score, best.get(metric, score))
+        return best
+
     async def read_result(self, experiment_id: str) -> tuple[str, bytes]:
         experiment = await self._get(experiment_id)
         if not experiment.result_path:
@@ -107,6 +123,7 @@ class ExperimentationService:
             kb_config=KbConfig(**experiment.snapshot_kb_config),
             retrieval_config=KnowledgeConfig(**experiment.snapshot_retrieval_config),
             metrics=experiment.metrics,
+            scores=experiment.scores,
             status=experiment.status,
             error=experiment.error,
             created_at=experiment.created_at,

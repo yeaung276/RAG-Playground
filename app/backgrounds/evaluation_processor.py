@@ -39,9 +39,12 @@ class EvaluationProcessor:
                 await self._update_experiment(experiment_id, status="importing")
                 await self._index_dataset_into_kb(experiment)
             await self._update_experiment(experiment_id, status="running")
-            await self._retrieve_and_score(experiment)
+            scores = await self._retrieve_and_score(experiment)
             await self._update_experiment(
-                experiment_id, status="success", result_path=result_path(experiment_id)
+                experiment_id,
+                status="success",
+                result_path=result_path(experiment_id),
+                scores=scores,
             )
         except Exception as exc:  # noqa: BLE001 — a background task must never crash its caller
             await self._update_experiment(experiment_id, status="failed", error=str(exc)[:2000])
@@ -59,7 +62,7 @@ class EvaluationProcessor:
                 kb_id=experiment.knowledge_id,
             )
 
-    async def _retrieve_and_score(self, experiment: Experiment) -> None:
+    async def _retrieve_and_score(self, experiment: Experiment) -> dict[str, float]:
         dataset = await self._get_dataset(experiment.dataset_id)
         pairs = json.loads((await self.storage.load(dataset.result_key)).read())
         config = KnowledgeConfig(**experiment.snapshot_retrieval_config)
@@ -71,14 +74,30 @@ class EvaluationProcessor:
             retrieved = await self.retrieval.retrieve(
                 experiment.knowledge_id, pair["question"], **options
             )
+            scores, status, highlights = self.evaluation.score(
+                retrieved, pair["context"], pair["source_file"], metrics
+            )
             scored.append({
                 "question": pair["question"],
                 "answer": pair["answer"],
                 "category": pair["category"],
                 "labels": pair["labels"],
-                "scores": self.evaluation.score(
-                    retrieved, pair["context"], pair["source_file"], metrics
-                ),
+                "context": pair["context"],
+                "source_file": pair["source_file"],
+                "generated_answer": None,
+                "retrieved": [
+                    {
+                        "rank": rank,
+                        "chunk_id": hit.chunk_id,
+                        "source": (hit.chunk.meta or {}).get("source") if hit.chunk else None,
+                        "score": hit.score,
+                        "content": hit.chunk.content if hit.chunk else "",
+                        "highlights": spans,
+                    }
+                    for rank, (hit, spans) in enumerate(zip(retrieved, highlights), start=1)
+                ],
+                "scores": scores,
+                "status": status,
             })
 
         result = {
@@ -88,6 +107,7 @@ class EvaluationProcessor:
         await self.storage.save(
             json.dumps(result, ensure_ascii=False, indent=2).encode(), result_path(experiment.id)
         )
+        return result["metrics"]
 
     async def _create_node(self, kb_id: str, name: str, config: KbConfig) -> str:
         async with self.session_maker() as session:

@@ -8,7 +8,7 @@ export default function Tooltip({
   className,
   children,
 }: {
-  content: string;
+  content: ReactNode;
   className?: string;
   children: ReactNode;
 }) {

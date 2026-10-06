@@ -3,21 +3,13 @@ import {
   Clock3,
   Database,
   Loader2,
+  RotateCw,
   TriangleAlert,
   XCircle,
 } from 'lucide-react';
 import { errorMessage } from '../api/client';
-import { useDatasets, type Category, type Dataset } from '../api/datasets';
-
-/** Categories are structural — one per pair, fixed set. */
-const CATEGORY_DOT: Record<Category, string> = {
-  simple: 'bg-indigo-500',
-  reasoning: 'bg-cyan-400',
-  multi_context: 'bg-amber-400',
-  conditional: 'bg-violet-400',
-};
-
-const CATEGORIES = Object.keys(CATEGORY_DOT) as Category[];
+import { useDatasets, useRetryDataset, type Dataset } from '../api/datasets';
+import { CATEGORIES, CATEGORY_DOT } from './categories';
 
 function ago(iso: string) {
   const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
@@ -81,6 +73,7 @@ export default function DatasetList({ onOpen }: { onOpen: (id: string) => void }
 
 function Row({ dataset, onOpen }: { dataset: Dataset; onOpen: (id: string) => void }) {
   const { status, fileCount, parsedCount, pairCount } = dataset;
+  const retry = useRetryDataset();
 
   if (status === 'failed') {
     return (
@@ -94,6 +87,14 @@ function Row({ dataset, onOpen }: { dataset: Dataset; onOpen: (id: string) => vo
         <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700">
           <XCircle size={12} /> Failed
         </span>
+        <button
+          onClick={() => retry.mutate(dataset.id)}
+          disabled={retry.isPending}
+          title="Retry"
+          className="shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-50"
+        >
+          <RotateCw size={14} className={retry.isPending ? 'animate-spin' : ''} />
+        </button>
       </li>
     );
   }

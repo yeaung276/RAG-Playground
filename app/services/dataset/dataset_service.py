@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.dataset import Dataset
 from app.models.model import Model
 from app.schemas.dataset import DatasetCreate, DatasetModel, DatasetPage, DatasetRead
-from app.services.errors import ConflictError, NotFoundError
+from app.services.errors import BadRequestError, ConflictError, NotFoundError
 from app.storage import Storage
 
 
@@ -68,6 +68,16 @@ class DatasetService:
 
     async def get(self, dataset_id: str) -> DatasetRead:
         return await self._read(await self._get(dataset_id))
+
+    async def reset_failed(self, dataset_id: str) -> DatasetRead:
+        dataset = await self._get(dataset_id)
+        if dataset.status != "failed":
+            raise BadRequestError(f"Dataset {dataset_id} is {dataset.status}, not failed")
+        dataset.status = "pending"
+        dataset.error = None
+        await self.session.commit()
+        await self.session.refresh(dataset)
+        return await self._read(dataset)
 
     async def read_pairs(self, dataset_id: str) -> tuple[str, bytes]:
         """The generated JSON file, served as-is for the client to render."""

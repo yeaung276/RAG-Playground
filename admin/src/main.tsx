@@ -19,6 +19,7 @@ import Docs from './docs/Docs';
 import Models from './pages/Models';
 import Evaluation from './pages/Evaluation';
 import DatasetDetail from './pages/DatasetDetail';
+import ExperimentDetail from './pages/ExperimentDetail';
 import { Toaster, pushToast } from './components/Toast';
 import { errorMessage } from './api/client';
 import './index.css';
@@ -56,6 +57,7 @@ createRoot(document.getElementById('root')!).render(
               <Route path="/models" element={<Models />} />
               <Route path="/evaluation" element={<Evaluation />} />
               <Route path="/evaluation/datasets/:id" element={<DatasetDetail />} />
+              <Route path="/evaluation/experiments/:id" element={<ExperimentDetail />} />
               <Route path="/control" element={<ControlPanel />} />
               <Route path="/control/:id" element={<ControlChat />} />
               <Route path="*" element={<Navigate to="/control" replace />} />

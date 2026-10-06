@@ -10,6 +10,13 @@ const isActive = (status: ExperimentStatus) => status !== 'success' && status !=
 export const METRICS = ['context_precision', 'context_recall', 'hit_rate', 'mrr'] as const;
 export type Metric = (typeof METRICS)[number];
 
+export const METRIC_LABELS: Record<Metric, string> = {
+  context_precision: 'Context precision',
+  context_recall: 'Context recall',
+  hit_rate: 'Hit rate',
+  mrr: 'MRR',
+};
+
 export interface RetrievalConfig {
   indexTypes: KnowledgeBaseConfig['indexTypes'];
   topK: number | null;
@@ -25,6 +32,7 @@ export interface Experiment {
   kbConfig: KnowledgeBaseConfig | null;
   retrievalConfig: RetrievalConfig;
   metrics: Metric[];
+  scores: Partial<Record<Metric, number>> | null;
   status: ExperimentStatus;
   error: string | null;
   createdAt: string;
@@ -46,6 +54,19 @@ export interface ExperimentInput {
   metrics: Metric[];
 }
 
+/** How much of a pair's golden text the retrieved chunks hold. */
+export type PairStatus = 'full' | 'partial' | 'miss';
+
+/** A chunk retrieved for a pair; `highlights` are [start, end) ranges of golden text in `content`. */
+export interface RetrievedChunk {
+  rank: number;
+  chunk_id: string;
+  source: string | null;
+  score: number;
+  content: string;
+  highlights: [number, number][];
+}
+
 /** Per-pair scores, as they sit in the stored result file (raw, not camelized). */
 export interface ExperimentResult {
   metrics: Record<string, number>;
@@ -54,7 +75,12 @@ export interface ExperimentResult {
     answer: string;
     category: string;
     labels: string[];
+    context: string;
+    source_file: string;
+    generated_answer: string | null;
+    retrieved: RetrievedChunk[];
     scores: Record<string, number>;
+    status: PairStatus;
   }[];
 }
 
@@ -101,5 +127,14 @@ export function useExperimentResult(id: string | null, ready: boolean) {
     queryKey: ['experiments', id, 'result'] as const,
     queryFn: () => requestAt<ExperimentResult>(`${BASE}/${id}/result`),
     enabled: !!id && ready,
+  });
+}
+
+/** Best score per metric among earlier successful runs on the same dataset. */
+export function useBestScores(id: string | null) {
+  return useQuery({
+    queryKey: ['experiments', id, 'best'] as const,
+    queryFn: () => requestAt<Partial<Record<Metric, number>>>(`${BASE}/${id}/best`),
+    enabled: !!id,
   });
 }

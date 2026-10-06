@@ -72,6 +72,7 @@ export function useDataset(id: string) {
   return useQuery({
     queryKey: keys.one(id),
     queryFn: () => requestAt<Dataset>(`${BASE}/${id}`),
+    enabled: !!id,
   });
 }
 
@@ -84,6 +85,14 @@ export function useCreateDataset() {
       body.append('archive', archive);
       return requestAt<Dataset>(BASE, { method: 'POST', body });
     },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['datasets'] }),
+  });
+}
+
+export function useRetryDataset() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => requestAt<Dataset>(`${BASE}/${id}/retry`, { method: 'POST' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['datasets'] }),
   });
 }

@@ -65,6 +65,14 @@ export type KnowledgeBaseConfig = z.infer<typeof knowledgeBaseConfigSchema>;
 export type IndexType = (typeof INDEX_TYPES)[number];
 export type ChunkingMethod = (typeof CHUNKING_METHODS)[number];
 
+/** BM25, or the name of the embedding model behind a vector index. */
+export function indexTypeName(
+  index: KnowledgeBaseConfig['indexTypes'][number],
+  modelName: (id: string) => string,
+) {
+  return index.type === 'bm25' ? 'BM25' : modelName(index.modelId);
+}
+
 /** Server defaults, restated for pre-filling forms. */
 export const DEFAULT_CONFIG: KnowledgeBaseConfig = {
   chunkingMethod: 'semantic',

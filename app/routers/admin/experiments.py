@@ -44,6 +44,14 @@ async def get_experiment(
     return await svc.get(experiment_id)
 
 
+@router.get("/{experiment_id}/best", response_model=dict[str, float])
+async def get_best_scores(
+    experiment_id: str,
+    svc: ExperimentationService = Depends(get_experimentation_service),
+):
+    return await svc.best_scores(experiment_id)
+
+
 @router.get("/{experiment_id}/result")
 async def get_experiment_result(
     experiment_id: str,

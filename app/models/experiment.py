@@ -30,6 +30,7 @@ class Experiment(Base):
     metrics: Mapped[list[str]] = mapped_column(
         _JSON, nullable=False, default=list, server_default="[]"
     )
+    scores: Mapped[dict[str, float] | None] = mapped_column(_JSON, default=None)
     result_path: Mapped[str | None] = mapped_column(default=None)
     status: Mapped[str] = mapped_column(index=True, default="pending")
     error: Mapped[str | None] = mapped_column(default=None)

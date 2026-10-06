@@ -10,6 +10,8 @@ from app.services.retrieval.document import KbConfig
 
 ExperimentStatus = Literal["pending", "importing", "running", "success", "failed"]
 
+PairScoreStatus = Literal["full", "partial", "miss"]
+
 
 class Metric(StrEnum):
     CONTEXT_PRECISION = "context_precision"
@@ -39,6 +41,7 @@ class ExperimentRead(CamelModel):
     kb_config: KbConfig | None
     retrieval_config: KnowledgeConfig
     metrics: list[Metric]
+    scores: dict[str, float] | None
     status: ExperimentStatus
     error: str | None
     created_at: datetime

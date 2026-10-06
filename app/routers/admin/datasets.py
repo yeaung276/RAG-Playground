@@ -46,6 +46,18 @@ async def get_dataset(
     return await svc.get(dataset_id)
 
 
+@router.post("/{dataset_id}/retry", response_model=DatasetRead)
+async def retry_dataset(
+    dataset_id: str,
+    background_tasks: BackgroundTasks,
+    svc: DatasetService = Depends(get_dataset_service),
+    processor: DatasetProcessor = Depends(get_dataset_processor),
+):
+    dataset = await svc.reset_failed(dataset_id)
+    background_tasks.add_task(processor.generate, dataset.id)
+    return dataset
+
+
 @router.get("/{dataset_id}/pairs")
 async def get_dataset_pairs(
     dataset_id: str, svc: DatasetService = Depends(get_dataset_service)
