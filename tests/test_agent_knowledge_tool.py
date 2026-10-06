@@ -12,7 +12,10 @@ from app.schemas.agent import (
 )
 from app.services.agents.agent_service import AgentService
 from app.services.agents.generation_service import GenerationService
+from app.services.retrieval.document import Bm25Index, VectorIndex
 from app.services.retrieval.retrieval_service import Retrieved
+
+BM25 = [{"type": "bm25"}]
 
 
 class FakeChunk:
@@ -73,7 +76,7 @@ async def test_a_saved_agent_with_knowledge_binds_the_tool(db_sessionmaker):
             created.id,
             AgentUpdate(
                 knowledgeId="kb1",
-                knowledgeConfig=KnowledgeConfig(indexTypes=["bm25"], topK=4),
+                knowledgeConfig=KnowledgeConfig(indexTypes=BM25, topK=4),
             ),
         )
         saved = await agents.get(created.id)
@@ -85,6 +88,8 @@ async def test_a_saved_agent_with_knowledge_binds_the_tool(db_sessionmaker):
     assert [t.name for t in tools] == ["search_knowledge"]
     assert retrieval.calls[0][0] == "kb1"
     assert retrieval.calls[0][2]["top_k"] == 4
+    # read back from the JSON column, the indexes still reach retrieval as specs
+    assert retrieval.calls[0][2]["index_types"] == [Bm25Index()]
 
 
 async def test_a_row_with_knowledge_but_no_config_binds_nothing(db_sessionmaker):
@@ -109,7 +114,7 @@ async def test_attaching_knowledge_without_a_config_is_rejected():
 
 async def test_knowledge_binds_one_search_tool():
     tools = await service(FakeRetrieval())._create_default_tools(
-        agent(knowledge_id="kb1", knowledge_config=KnowledgeConfig(indexTypes=["bm25"]))
+        agent(knowledge_id="kb1", knowledge_config=KnowledgeConfig(indexTypes=BM25))
     )
     assert [t.name for t in tools] == ["search_knowledge"]
     # the model supplies the query and nothing else
@@ -122,7 +127,9 @@ async def test_stored_config_is_forwarded_to_retrieval():
         agent(
             knowledge_id="kb1",
             knowledge_config=KnowledgeConfig(
-                indexTypes=["bm25", "BAAI/bge-m3"], topK=7, rerankOn="parent"
+                indexTypes=[{"type": "bm25"}, {"type": "vector", "modelId": "embed-1"}],
+                topK=7,
+                rerankOn="parent",
             ),
         )
     )
@@ -130,7 +137,7 @@ async def test_stored_config_is_forwarded_to_retrieval():
 
     kb_id, query, kwargs = retrieval.calls[0]
     assert (kb_id, query) == ("kb1", "refund policy")
-    assert kwargs["index_types"] == ["bm25", "BAAI/bge-m3"]
+    assert kwargs["index_types"] == [Bm25Index(), VectorIndex(model_id="embed-1")]
     assert (kwargs["top_k"], kwargs["rerank_on"]) == (7, "parent")
     # unset numbers are dropped so the service's own defaults apply
     assert "rerank_pool" not in kwargs and "prefetch_limit" not in kwargs
@@ -144,7 +151,7 @@ async def test_parent_content_is_returned_falling_back_to_the_match():
         ]
     )
     tools = await service(retrieval)._create_default_tools(
-        agent(knowledge_id="kb1", knowledge_config=KnowledgeConfig(indexTypes=["bm25"]))
+        agent(knowledge_id="kb1", knowledge_config=KnowledgeConfig(indexTypes=BM25))
     )
     result = await tools[0].ainvoke({"query": "anything"})
 

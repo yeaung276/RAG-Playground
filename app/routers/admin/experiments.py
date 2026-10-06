@@ -1,11 +1,15 @@
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from fastapi.responses import Response
 
-from app.dependencies.services import get_experimentation_service
+from app.backgrounds.evaluation_processor import EvaluationProcessor
+from app.dependencies.services import (
+    get_evaluation_processor,
+    get_experimentation_service,
+)
 from app.schemas.experiment import ExperimentCreate, ExperimentPage, ExperimentRead
-from app.services.dataset.experimentation_service import ExperimentationService
+from app.services.dataset.experiment_service import ExperimentationService
 
 router = APIRouter(prefix="/experiments", tags=["experiments"])
 
@@ -13,9 +17,13 @@ router = APIRouter(prefix="/experiments", tags=["experiments"])
 @router.post("", response_model=ExperimentRead, status_code=201)
 async def create_experiment(
     payload: ExperimentCreate,
+    background_tasks: BackgroundTasks,
     svc: ExperimentationService = Depends(get_experimentation_service),
+    processor: EvaluationProcessor = Depends(get_evaluation_processor),
 ):
-    return await svc.create(payload)
+    experiment = await svc.create(payload)
+    background_tasks.add_task(processor.run, experiment.id)
+    return experiment
 
 
 @router.get("", response_model=ExperimentPage)

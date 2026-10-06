@@ -76,22 +76,6 @@ export function useCreateKnowledgeBase() {
   });
 }
 
-/** Patch a base's config. Server marks already-extracted files out of sync. */
-export function useUpdateKnowledgeBaseConfig() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (vars: { kbId: string; config: KnowledgeBaseConfig }) =>
-      request<KnowledgeBase>(`/${vars.kbId}`, {
-        method: 'PATCH',
-        json: { config: vars.config },
-      }),
-    onSuccess: (_data, { kbId }) => {
-      qc.invalidateQueries({ queryKey: keys.kb(kbId) });
-      qc.invalidateQueries({ queryKey: keys.kbList });
-      qc.invalidateQueries({ queryKey: keys.nodes(kbId) });
-    },
-  });
-}
 
 export function useCreateFolder() {
   const qc = useQueryClient();

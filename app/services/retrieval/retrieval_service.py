@@ -8,14 +8,10 @@ from app.logger import get_logger
 from app.models.chunk import Chunk as ChunkRow
 from app.models.kb import KnowledgeBase
 from app.services.errors import ConflictError, NotFoundError
-from app.services.retrieval.document import IndexTypes, RerankTypes
-from app.services.retrieval.embedding import (
-    Bm25Embedder,
-    Embedder,
-    OpenAIEmbedder,
-    TEIEmbedder,
-)
-from app.services.retrieval.rerank import Reranker, TEIReranker
+from app.services.models.embedding import Bm25Embedder, Embedder
+from app.services.models.model_service import ModelService
+from app.services.models.rerank import Reranker
+from app.services.retrieval.document import IndexSpec, KbConfig
 
 logger = get_logger(__name__)
 
@@ -40,10 +36,9 @@ class RetrievalService:
         kb_id: str,
         query: str,
         *,
-        index_types: list[IndexTypes],
+        index_types: list[IndexSpec],
         top_k: int = 5,
         rerank_on: Literal["parent", "child"] | None = None,
-        rerank_model: RerankTypes = "BAAI/bge-reranker-v2-m3",
         rerank_pool: int | None = None,
         prefetch_limit: int | None = None,
     ) -> list[Retrieved]:
@@ -60,10 +55,13 @@ class RetrievalService:
             if kb is None:
                 raise NotFoundError(f"Knowledge base {kb_id} not found")
 
-        if not self._is_index_supported(kb, index_types):
+        config = KbConfig(**(kb.config or {}))
+        if not self._is_index_supported(config, index_types):
             raise ConflictError(
                 f"One of the index types is not supported by knowledge base {kb_id}"
             )
+        if rerank_on and config.reranker is None:
+            raise ConflictError(f"Knowledge base {kb_id} has no reranker configured")
 
         hits = await self._scan_points(
             kb_id, query, index_types, prefetch_limit, limit=rerank_pool
@@ -75,37 +73,42 @@ class RetrievalService:
             return await self._hydrate_parents(hits[:top_k])
 
         hits = await self._hydrate_parents(hits)
-        return (await self._rerank(query, hits, rerank_on, rerank_model))[:top_k]
+        return (await self._rerank(query, hits, rerank_on, config))[:top_k]
 
-    def _get_embedding_model_from_config(
-        self, index_types: list[IndexTypes]
-    ) -> dict[IndexTypes, Embedder]:
+    async def _get_embedding_model_from_config(
+        self, index_types: list[IndexSpec]
+    ) -> dict[str, Embedder]:
         """Resolve index types to their backing adapters."""
-        embedders: dict[IndexTypes, Embedder] = {}
-        for index_type in index_types:
-            match index_type:
-                case "BAAI/bge-m3":
-                    embedders[index_type] = TEIEmbedder(index_type)
-                case "text-embedding-3-small" | "text-embedding-3-large":
-                    embedders[index_type] = OpenAIEmbedder(index_type)
-                case "bm25":
-                    embedders[index_type] = Bm25Embedder(index_type)
-                case _:
-                    raise ValueError(f"Unsupported index type: {index_type!r}")
+        embedders: dict[str, Embedder] = {}
+        async with self.session_maker() as session:
+            for index in index_types:
+                match index.type:
+                    case "bm25":
+                        embedders[index.vector_name] = Bm25Embedder()
+                    case "vector":
+                        embedders[index.vector_name] = await ModelService(
+                            session
+                        ).resolve_model(index.model_id)
+                    case _:
+                        raise ValueError(f"Unsupported index type: {index!r}")
         return embedders
 
-    def _get_reranker_from_config(self, rerank_model: RerankTypes) -> Reranker:
-        """Resolve a rerank model to its backing adapter."""
-        match rerank_model:
-            case "BAAI/bge-reranker-v2-m3":
-                return TEIReranker(rerank_model)
+    async def _get_reranker_from_config(self, config: KbConfig) -> Reranker:
+        """Resolve the KB's reranker to its backing adapter."""
+        match config.reranker.type:
+            case "cross-encoder":
+                async with self.session_maker() as session:
+                    return await ModelService(session).resolve_model(
+                        config.reranker.model_id
+                    )
             case _:
-                raise ValueError(f"Unsupported rerank model: {rerank_model!r}")
+                raise ValueError(f"Unsupported reranker: {config.reranker.type!r}")
 
     def _is_index_supported(
-        self, kb: KnowledgeBase, index_types: list[IndexTypes]
+        self, config: KbConfig, index_types: list[IndexSpec]
     ) -> bool:
-        if set(index_types) - set((kb.config or {}).get("index_types", [])):
+        available = {index.vector_name for index in config.index_types}
+        if {index.vector_name for index in index_types} - available:
             return False
         return True
 
@@ -113,11 +116,11 @@ class RetrievalService:
         self,
         kb_id: str,
         query: str,
-        index_types: list[IndexTypes],
+        index_types: list[IndexSpec],
         prefetch_limit: int,
         limit: int,
     ):
-        embedders = self._get_embedding_model_from_config(index_types)
+        embedders = await self._get_embedding_model_from_config(index_types)
         prefetch = [
             models.Prefetch(
                 query=(await embedder.embed([query]))[0],
@@ -171,11 +174,11 @@ class RetrievalService:
         query: str,
         retrieved: list[Retrieved],
         rerank_on: Literal["parent", "child"],
-        rerank_model: RerankTypes,
+        config: KbConfig,
     ) -> list[Retrieved]:
         """Rescore hits with a cross-encoder, best first. A hit whose text is
         missing scores 0 and sinks to the bottom."""
-        reranker = self._get_reranker_from_config(rerank_model)
+        reranker = await self._get_reranker_from_config(config)
         texts = [
             (hit.chunk.content if hit.chunk else "")
             if rerank_on == "parent"

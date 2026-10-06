@@ -4,8 +4,8 @@ ones a BM25 index wants — not a claim about ideal Thai segmentation."""
 
 import unittest
 
-from app.services.retrieval.embedding import Bm25Embedder
-from app.services.retrieval.embedding.bm25 import BM25_AVG_DOC_LEN, BM25_B, BM25_K1
+from app.services.models.embedding import Bm25Embedder
+from app.services.models.embedding.bm25 import BM25_AVG_DOC_LEN, BM25_B, BM25_K1
 
 
 class TokenizeMarkupTest(unittest.TestCase):

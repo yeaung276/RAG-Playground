@@ -21,10 +21,10 @@ class Experiment(Base):
     knowledge_id: Mapped[str | None] = mapped_column(
         ForeignKey("knowledge_bases.id", ondelete="SET NULL"), index=True, default=None
     )
-    snapshot_retreival_config: Mapped[dict[str, Any]] = mapped_column(
+    snapshot_retrieval_config: Mapped[dict[str, Any]] = mapped_column(
         _JSON, nullable=False, default=dict
     )
-    snapshot_indexing_config: Mapped[dict[str, Any] | None] = mapped_column(
+    snapshot_kb_config: Mapped[dict[str, Any] | None] = mapped_column(
         _JSON, default=None
     )
     metrics: Mapped[list[str]] = mapped_column(

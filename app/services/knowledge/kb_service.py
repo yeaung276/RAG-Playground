@@ -6,19 +6,23 @@ from app.models.chunk import Chunk
 from app.models.node import Node
 from app.models.kb import KnowledgeBase
 from app.schemas.knowledge import KnowledgeBaseRead
-from app.services.retrieval.document import EMBEDDING_DIMENSIONS, IndexingConfig
+from app.services.models.model_service import ModelService
+from app.services.retrieval.document import KbConfig, VectorIndex
 from app.services.errors import NotFoundError
 
 
 class KnowledgeBaseService:
     """CRUD for knowledge bases."""
 
-    def __init__(self, session: AsyncSession, qdrant: AsyncQdrantClient):
+    def __init__(
+        self, session: AsyncSession, qdrant: AsyncQdrantClient, model_service: ModelService
+    ):
         self.session = session
         self.qdrant = qdrant
+        self.model_service = model_service
 
     async def create(
-        self, name: str, config: IndexingConfig
+        self, name: str, config: KbConfig
     ) -> KnowledgeBaseRead:
         kb = KnowledgeBase(name=name, config=config.model_dump())
         self.session.add(kb)
@@ -29,7 +33,7 @@ class KnowledgeBaseService:
         return self._read(kb, 0)
 
     async def update_config(
-        self, kb_id: str, config: IndexingConfig
+        self, kb_id: str, config: KbConfig
     ) -> KnowledgeBaseRead:
         kb = await self.session.get(KnowledgeBase, kb_id)
         if kb is None:
@@ -93,26 +97,26 @@ class KnowledgeBaseService:
             id=kb.id,
             name=kb.name,
             description=kb.description,
-            config=IndexingConfig(**(kb.config or {})),
+            config=KbConfig(**(kb.config or {})),
             file_count=file_count,
             created_at=kb.created_at,
         )
 
-    async def _create_collection(self, kb_id: str, config: IndexingConfig) -> None:
+    async def _create_collection(self, kb_id: str, config: KbConfig) -> None:
         await self.qdrant.create_collection(
             kb_id,
             vectors_config={
-                index_type: models.VectorParams(
-                    size=EMBEDDING_DIMENSIONS[index_type],
+                index.vector_name: models.VectorParams(
+                    size=await self._dimension_of(index.model_id),
                     distance=models.Distance.COSINE,
                 )
-                for index_type in config.index_types
-                if index_type in EMBEDDING_DIMENSIONS
+                for index in config.index_types
+                if isinstance(index, VectorIndex)
             },
             sparse_vectors_config={
-                index_type: models.SparseVectorParams(modifier=models.Modifier.IDF)
-                for index_type in config.index_types
-                if index_type not in EMBEDDING_DIMENSIONS
+                index.vector_name: models.SparseVectorParams(modifier=models.Modifier.IDF)
+                for index in config.index_types
+                if not isinstance(index, VectorIndex)
             },
         )
 
@@ -124,9 +128,14 @@ class KnowledgeBaseService:
             kb_id, "node_id", field_schema=models.PayloadSchemaType.KEYWORD
         )
 
+    async def _dimension_of(self, model_id: str) -> int:
+        """Dense size is fixed at creation and not stored on the model, so embed once to learn it."""
+        embedder = await self.model_service.resolve_model(model_id)
+        return len((await embedder.embed(["dimension probe"]))[0])
+
     def _collection_config_changed(
-        self, before: dict | None, after: IndexingConfig
+        self, before: dict | None, after: KbConfig
     ) -> bool:
         """Vector size and sparse layout are both fixed at creation."""
-        before = before or {}
-        return set(before.get("index_types", [])) != set(after.index_types)
+        names = {index.vector_name for index in KbConfig(**(before or {})).index_types}
+        return names != {index.vector_name for index in after.index_types}

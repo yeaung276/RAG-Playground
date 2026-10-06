@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, requestAt } from './client';
 import { readFrames } from './sse';
-import type { IndexType } from './config';
+import type { KnowledgeBaseConfig } from './config';
 
 const BASE = '/api/admin/agents';
 
@@ -46,7 +46,7 @@ export interface Tool {
 export type ToolInput = Omit<Tool, 'hasAuthToken'> & { authToken?: string };
 
 export interface KnowledgeConfig {
-  indexTypes: IndexType[];
+  indexTypes: KnowledgeBaseConfig['indexTypes'];
   topK: number | null;
   rerankOn: 'parent' | 'child' | null;
   rerankPool: number | null;

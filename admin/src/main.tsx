@@ -14,7 +14,6 @@ import KnowledgeList from './pages/KnowledgeList';
 import ControlPanel from './pages/ControlPanel';
 import ControlChat from './pages/ControlChat';
 import FileBrowser from './pages/FileBrowser';
-import KbConfig from './pages/KbConfig';
 import Agents from './pages/Agents';
 import Docs from './docs/Docs';
 import Models from './pages/Models';
@@ -53,7 +52,6 @@ createRoot(document.getElementById('root')!).render(
             <Route element={<Layout />}>
               <Route path="/knowledge" element={<KnowledgeList />} />
               <Route path="/knowledge/:id" element={<FileBrowser />} />
-              <Route path="/knowledge/:id/config" element={<KbConfig />} />
               <Route path="/agents" element={<Agents />} />
               <Route path="/models" element={<Models />} />
               <Route path="/evaluation" element={<Evaluation />} />

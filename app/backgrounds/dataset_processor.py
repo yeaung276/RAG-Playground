@@ -1,6 +1,5 @@
 import json
 import random
-import zipfile
 
 from langchain_core.language_models import BaseChatModel
 
@@ -12,6 +11,7 @@ from app.services.dataset.datagen_service import DataGenerationService
 from app.services.errors import ConflictError
 from app.services.models.model_service import ModelService
 from app.storage import Storage
+from app.utils.archive import read_text_files
 
 logger = get_logger(__name__)
 
@@ -29,33 +29,29 @@ class DatasetProcessor:
                 return
 
             datagen = await self._get_datagen(dataset.model_id)
-            buf = await self.storage.load(dataset.source_key)
+            files = read_text_files(await self.storage.load(dataset.source_key))
 
-            with zipfile.ZipFile(buf) as zf:
-                files = [n for n in zf.namelist() if not n.endswith("/")]
+            logger.info(
+                "Generating %s: %d file(s) x %d pairs, model %s, mix %s, labels %s",
+                dataset.name, len(files), dataset.sample_per_file,
+                dataset.model_id, dataset.mix, dataset.labels,
+            )
+            await self._save(dataset_id, status="running", file_count=len(files))
 
-                logger.info(
-                    "Generating %s: %d file(s) x %d pairs, model %s, mix %s, labels %s",
-                    dataset.name, len(files), dataset.sample_per_file,
-                    dataset.model_id, dataset.mix, dataset.labels,
+            pairs = []
+            for parsed, (name, text) in enumerate(files, start=1):
+                logger.info("  [%d/%d] %s", parsed, len(files), name)
+                categories = self._weighted_categories(
+                    dataset.mix, dataset.sample_per_file
                 )
-                await self._save(dataset_id, status="running", file_count=len(files))
-
-                pairs = []
-                for parsed, name in enumerate(files, start=1):
-                    logger.info("  [%d/%d] %s", parsed, len(files), name)
-                    text = zf.read(name).decode("utf-8", errors="ignore")
-                    categories = self._weighted_categories(
-                        dataset.mix, dataset.sample_per_file
-                    )
-                    samples = await datagen.create_samples(
-                        text, categories, dataset.labels
-                    )
-                    pairs += [
-                        {"source_file": name, **sample.model_dump(mode="json")}
-                        for sample in samples
-                    ]
-                    await self._save(dataset_id, parsed_count=parsed, pair_count=len(pairs))
+                samples = await datagen.create_samples(
+                    text, categories, dataset.labels
+                )
+                pairs += [
+                    {"source_file": name, **sample.model_dump(mode="json")}
+                    for sample in samples
+                ]
+                await self._save(dataset_id, parsed_count=parsed, pair_count=len(pairs))
 
             key = result_key(dataset_id)
             await self.storage.save(json.dumps(pairs, indent=2).encode(), key)

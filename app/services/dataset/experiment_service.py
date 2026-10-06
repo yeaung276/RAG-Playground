@@ -7,7 +7,7 @@ from app.schemas.agent import KnowledgeConfig
 from app.schemas.experiment import ExperimentCreate, ExperimentPage, ExperimentRead
 from app.services.errors import NotFoundError
 from app.services.knowledge.kb_service import KnowledgeBaseService
-from app.services.retrieval.document import IndexingConfig
+from app.services.retrieval.document import KbConfig
 from app.storage import Storage
 
 
@@ -31,7 +31,7 @@ class ExperimentationService:
         knowledge_id = payload.knowledge_id
         if knowledge_id is None:
             created = await self.kb_service.create(
-                name=f"exp-{dataset.name}", config=payload.indexing_config
+                name=f"exp-{dataset.name}", config=payload.kb_config
             )
             knowledge_id = created.id
         kb = await self.kb_service.get(knowledge_id)
@@ -39,8 +39,11 @@ class ExperimentationService:
         experiment = Experiment(
             dataset_id=dataset.id,
             knowledge_id=kb.id,
-            snapshot_retreival_config=payload.knowledge_config.model_dump(),
-            snapshot_indexing_config=kb.config.model_dump(),
+            snapshot_retrieval_config={
+                **payload.retrieval_config.model_dump(),
+                "skip_dataset_indexing": payload.knowledge_id is not None,
+            },
+            snapshot_kb_config=kb.config.model_dump(),
             metrics=[metric.value for metric in payload.metrics],
             status="pending",
         )
@@ -101,8 +104,8 @@ class ExperimentationService:
             id=experiment.id,
             dataset_id=experiment.dataset_id,
             knowledge_id=experiment.knowledge_id,
-            indexing_config=IndexingConfig(**experiment.snapshot_indexing_config),
-            knowledge_config=KnowledgeConfig(**experiment.snapshot_retreival_config),
+            kb_config=KbConfig(**experiment.snapshot_kb_config),
+            retrieval_config=KnowledgeConfig(**experiment.snapshot_retrieval_config),
             metrics=experiment.metrics,
             status=experiment.status,
             error=experiment.error,

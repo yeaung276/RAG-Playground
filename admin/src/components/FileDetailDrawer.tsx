@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { errorMessage } from '../api/client';
 import { useFileDetail } from '../api/knowledge';
+import { useModels } from '../api/models';
 import type { FileNode } from '../api/types';
 import { formatBytes, formatDate } from '../utils/format';
 import ChunkedMarkdown from './ChunkedMarkdown';
@@ -87,6 +88,7 @@ function MetaField({ label, children }: { label: string; children: React.ReactNo
 export default function FileDetailDrawer({ kbId, nodeId, onClose }: Props) {
   const open = nodeId !== null;
   const { data, isLoading, error } = useFileDetail(kbId, nodeId);
+  const { data: embeddingModels } = useModels(1, 'bi-encoder', 100);
 
   return (
     <Dialog.Root modal={false} open={open} onOpenChange={(o) => !o && onClose()}>
@@ -153,7 +155,17 @@ export default function FileDetailDrawer({ kbId, nodeId, onClose }: Props) {
                 <ConfigRow label="Chunking method" value={data.config.chunkingMethod} />
                 <ConfigRow label="Parent chunk size" value={data.config.maxChunkSize} />
                 <ConfigRow label="Child chunk size" value={data.config.minChunkSize} />
-                <ConfigRow label="Index types" value={data.config.indexTypes.join(', ')} />
+                <ConfigRow
+                  label="Index types"
+                  value={data.config.indexTypes
+                    .map((t) =>
+                      t.type === 'bm25'
+                        ? 'BM25'
+                        : (embeddingModels?.items.find((m) => m.id === t.modelId)?.name ??
+                          t.modelId),
+                    )
+                    .join(', ')}
+                />
               </dl>
             </div>
           )}

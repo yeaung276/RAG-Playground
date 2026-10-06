@@ -4,7 +4,7 @@ from typing import Literal
 from pydantic import Field
 
 from app.schemas.base import CamelModel
-from app.services.retrieval.document import IndexingConfig
+from app.services.retrieval.document import KbConfig
 
 
 # ── Knowledge bases ─────────────────────────────────────────────────────────
@@ -12,20 +12,20 @@ from app.services.retrieval.document import IndexingConfig
 
 class KnowledgeBaseCreate(CamelModel):
     name: str
-    config: IndexingConfig = Field(default_factory=IndexingConfig)
+    config: KbConfig = Field(default_factory=KbConfig)
 
 
 class KnowledgeBaseRead(CamelModel):
     id: str
     name: str
     description: str | None
-    config: IndexingConfig
+    config: KbConfig
     file_count: int
     created_at: datetime
 
 
 class KnowledgeBaseUpdate(CamelModel):
-    config: IndexingConfig
+    config: KbConfig
 
 
 # ── Nodes & files ───────────────────────────────────────────────────────────
@@ -58,5 +58,5 @@ class ChunkRead(CamelModel):
 
 
 class FileDetail(NodeRead):
-    config: IndexingConfig | None = None
+    config: KbConfig | None = None
     chunks: list[ChunkRead] = []

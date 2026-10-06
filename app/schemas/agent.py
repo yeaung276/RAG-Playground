@@ -5,7 +5,7 @@ from typing import Any, Literal
 from pydantic import Field, model_validator
 
 from app.schemas.base import CamelModel
-from app.services.retrieval.document import IndexTypes
+from app.services.retrieval.document import IndexSpec
 
 
 class HandoffMode(StrEnum):
@@ -100,7 +100,7 @@ class Handoff(CamelModel):
 
 
 class KnowledgeConfig(CamelModel):
-    index_types: list[IndexTypes] = Field(min_length=1)
+    index_types: list[IndexSpec] = Field(min_length=1)
     top_k: int | None = Field(default=None, gt=0)
     rerank_on: Literal["parent", "child"] | None = None
     rerank_pool: int | None = Field(default=None, gt=0)

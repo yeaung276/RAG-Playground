@@ -1,33 +1,47 @@
 import pytest
+import pytest_asyncio
 from fastapi import HTTPException
 from sqlalchemy import select
 
-import app.services.retrieval.indexing_service as indexing_module
-import app.services.retrieval.retrieval_service as retrieval_module
+import app.services.models.model_service as model_service_module
 from app.models.chunk import Chunk as ChunkRow
+from app.models.model import Model
 from app.models.node import Node
 from app.services.knowledge.kb_service import KnowledgeBaseService
-from app.services.retrieval.document import Document, IndexingConfig, Page
+from app.services.models.model_service import ModelService
+from app.services.retrieval.document import (
+    Bm25Index,
+    CrossEncoderReranker,
+    Document,
+    KbConfig,
+    LateInteractionReranker,
+    Page,
+    VectorIndex,
+)
 from app.services.retrieval.indexing_service import IndexingService
 from app.services.retrieval.retrieval_service import RetrievalService
 
-DENSE = "BAAI/bge-m3"
-DIM = 1024
-
+DIM = 8
 
 # The tokenizer indexes a term only if it carries a letter or digit, so this marker
 # is invisible to bm25 — letting a test attribute a hit to the dense branch alone.
 DENSE_MARKER = "@@"
 
 
-class FakeDense:
-    """Deterministic 1024-d vectors: text carrying DENSE_MARKER points along axis 1,
-    everything else along axis 0, so dense similarity is decidable without TEI."""
+class FakeTEIEmbedder:
+    """Deterministic vectors: text carrying DENSE_MARKER points along axis 1,
+    everything else along axis 0. Records which registered model embedded what."""
 
-    def __init__(self, model: str = DENSE, *_args, **_kwargs):
+    calls: list[tuple[str, int]] = []
+    explode: bool = False
+
+    def __init__(self, model: str, *_args, **_kwargs):
         self.model = model
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
+        if FakeTEIEmbedder.explode:
+            raise AssertionError(f"{self.model} embedded when it should not have")
+        FakeTEIEmbedder.calls.append((self.model, len(texts)))
         out = []
         for text in texts:
             vector = [0.0] * DIM
@@ -36,17 +50,45 @@ class FakeDense:
         return out
 
 
+class FakeTEIReranker:
+    """Scores a text by how often it says "winner", recording what it was shown."""
+
+    seen: list[tuple[str, str, list[str]]] = []
+
+    def __init__(self, model: str, *_args, **_kwargs):
+        self.model = model
+
+    async def rank(self, query: str, texts: list[str]) -> list[float]:
+        FakeTEIReranker.seen.append((self.model, query, texts))
+        return [float(t.count("winner")) for t in texts]
+
+
 @pytest.fixture(autouse=True)
-def fake_dense(monkeypatch):
-    """Both services construct TEIEmbedder by name; swap it so no TEI is needed."""
-    monkeypatch.setattr(indexing_module, "TEIEmbedder", FakeDense)
-    monkeypatch.setattr(retrieval_module, "TEIEmbedder", FakeDense)
+def fake_endpoints(monkeypatch):
+    FakeTEIEmbedder.calls = []
+    FakeTEIEmbedder.explode = False
+    FakeTEIReranker.seen = []
+    monkeypatch.setattr(model_service_module, "TEIEmbedder", FakeTEIEmbedder)
+    monkeypatch.setattr(model_service_module, "TEIReranker", FakeTEIReranker)
 
 
-def _config(*index_types: str) -> IndexingConfig:
-    return IndexingConfig(
-        chunking_method="recursive", index_types=list(index_types)  # type: ignore[arg-type]
-    )
+@pytest_asyncio.fixture
+async def ids(db_sessionmaker) -> dict[str, str]:
+    """Registered TEI models; name -> id."""
+    async with db_sessionmaker() as session:
+        rows = [
+            Model(provider="local", schema="tei", base_url="http://tei",
+                  name=name, capability=capability)
+            for name, capability in [
+                ("dense-a", "bi-encoder"),
+                ("dense-b", "bi-encoder"),
+                ("chunker", "bi-encoder"),
+                ("reranker", "cross-encoder"),
+            ]
+        ]
+        session.add_all(rows)
+        await session.commit()
+        return {row.name: row.id for row in rows}
 
 
 def _doc(source: str, *markdowns: str) -> Document:
@@ -56,289 +98,343 @@ def _doc(source: str, *markdowns: str) -> Document:
     )
 
 
-async def _setup(db_sessionmaker, qdrant, *index_types: str):
+async def _setup(db_sessionmaker, qdrant, *indexes, **config):
     """A fresh KB with its collection, plus one file node to hang chunks off."""
-    config = _config(*index_types)
+    config = KbConfig(index_types=list(indexes), **config)
     async with db_sessionmaker() as session:
-        kb = await KnowledgeBaseService(session, qdrant).create("kb", config)
+        kb = await KnowledgeBaseService(session, qdrant, ModelService(session)).create(
+            "kb", config
+        )
     async with db_sessionmaker() as session:
         node = Node(kb_id=kb.id, name="a.md", type="file")
         session.add(node)
         await session.flush()
         node_id = node.id
         await session.commit()
+    FakeTEIEmbedder.calls = []  # drop the collection-size probes
     return kb.id, node_id, config
 
 
-# ── indexing ─────────────────────────────────────────────────────────────────
+async def _index(db_sessionmaker, qdrant, kb_id, node_id, config, docs):
+    indexer = IndexingService(db_sessionmaker, qdrant)
+    for source, text in docs:
+        await indexer.create_index(_doc(source, text), config, node_id=node_id, kb_id=kb_id)
 
-async def test_index_persists_parents_to_postgres(db_sessionmaker, qdrant):
-    kb_id, node_id, config = await _setup(db_sessionmaker, qdrant, "bm25")
-    await IndexingService(db_sessionmaker, qdrant).create_index(
-        _doc("a.md", "the coin is round. " * 60), config, node_id=node_id, kb_id=kb_id
+
+async def _vector_names(qdrant, kb_id) -> list[set[str]]:
+    points = (await qdrant.scroll(kb_id, limit=100, with_vectors=True))[0]
+    return [set(p.vector) for p in points]  # type: ignore[arg-type]
+
+
+# ── indexing: which models embed ─────────────────────────────────────────────
+
+async def test_bm25_only_needs_no_registered_model(db_sessionmaker, qdrant):
+    kb_id, node_id, config = await _setup(db_sessionmaker, qdrant, Bm25Index())
+    await _index(db_sessionmaker, qdrant, kb_id, node_id, config, [("a.md", "alpha beta")])
+
+    assert all(names == {"bm25"} for names in await _vector_names(qdrant, kb_id))
+    assert FakeTEIEmbedder.calls == []
+
+
+async def test_dense_index_embeds_with_the_registered_model(db_sessionmaker, qdrant, ids):
+    a = ids["dense-a"]
+    kb_id, node_id, config = await _setup(db_sessionmaker, qdrant, VectorIndex(model_id=a))
+    await _index(db_sessionmaker, qdrant, kb_id, node_id, config, [("a.md", "alpha beta")])
+
+    names = await _vector_names(qdrant, kb_id)
+    assert names and all(n == {a} for n in names)
+    assert {model for model, _ in FakeTEIEmbedder.calls} == {"dense-a"}
+
+
+async def test_every_configured_index_lands_on_every_point(db_sessionmaker, qdrant, ids):
+    a, b = ids["dense-a"], ids["dense-b"]
+    kb_id, node_id, config = await _setup(
+        db_sessionmaker, qdrant,
+        Bm25Index(), VectorIndex(model_id=a), VectorIndex(model_id=b),
     )
+    await _index(db_sessionmaker, qdrant, kb_id, node_id, config, [("a.md", "alpha beta")])
 
+    names = await _vector_names(qdrant, kb_id)
+    assert names and all(n == {"bm25", a, b} for n in names)
+    assert {model for model, _ in FakeTEIEmbedder.calls} == {"dense-a", "dense-b"}
+
+
+async def test_unregistered_dense_model_fails_before_anything_is_written(
+    db_sessionmaker, qdrant, ids
+):
+    kb_id, node_id, _ = await _setup(db_sessionmaker, qdrant, Bm25Index())
+    bad = KbConfig(index_types=[Bm25Index(), VectorIndex(model_id="gone")])
+
+    with pytest.raises(HTTPException) as exc:
+        await _index(db_sessionmaker, qdrant, kb_id, node_id, bad, [("a.md", "alpha")])
+
+    assert exc.value.status_code == 404
+    assert (await qdrant.count(kb_id)).count == 0
     async with db_sessionmaker() as session:
-        rows = (await session.execute(select(ChunkRow))).scalars().all()
-    assert rows
-    assert {r.kb_id for r in rows} == {kb_id}
-    assert sorted(r.seq for r in rows) == list(range(len(rows)))
+        assert (await session.execute(select(ChunkRow))).scalars().all() == []
 
 
-async def test_index_upserts_one_point_per_child(db_sessionmaker, qdrant):
-    kb_id, node_id, config = await _setup(db_sessionmaker, qdrant, "bm25")
-    await IndexingService(db_sessionmaker, qdrant).create_index(
-        _doc("a.md", "the coin is round. " * 60), config, node_id=node_id, kb_id=kb_id
+# ── indexing: chunking model ─────────────────────────────────────────────────
+
+async def test_semantic_chunking_uses_the_chunking_model_not_the_index_model(
+    db_sessionmaker, qdrant, ids
+):
+    kb_id, node_id, config = await _setup(
+        db_sessionmaker, qdrant, VectorIndex(model_id=ids["dense-a"]),
+        chunking_method="semantic", chunking_model_id=ids["chunker"],
+        max_chunk_size=400, min_chunk_size=10,
     )
+    text = "Coins are round. Coins are minted. " * 5 + "Rivers flow. Rivers flood. " * 5
+    await _index(db_sessionmaker, qdrant, kb_id, node_id, config, [("a.md", text)])
+
+    models_used = [model for model, _ in FakeTEIEmbedder.calls]
+    assert "chunker" in models_used
+    assert "dense-a" in models_used
     assert (await qdrant.count(kb_id)).count > 0
 
 
-async def test_sparse_only_kb_emits_only_the_sparse_vector(db_sessionmaker, qdrant):
-    kb_id, node_id, config = await _setup(db_sessionmaker, qdrant, "bm25")
-    await IndexingService(db_sessionmaker, qdrant).create_index(
-        _doc("a.md", "alpha beta gamma"), config, node_id=node_id, kb_id=kb_id
+@pytest.mark.parametrize("method", ["fix-sized", "recursive"])
+async def test_non_semantic_chunking_never_calls_the_chunking_model(
+    db_sessionmaker, qdrant, ids, method
+):
+    kb_id, node_id, config = await _setup(
+        db_sessionmaker, qdrant, Bm25Index(),
+        chunking_method=method, chunking_model_id=ids["chunker"],
     )
-    points = (await qdrant.scroll(kb_id, limit=10, with_vectors=True))[0]
-    assert all(set(p.vector) == {"bm25"} for p in points)  # type: ignore[arg-type]
+    await _index(db_sessionmaker, qdrant, kb_id, node_id, config, [("a.md", "alpha " * 50)])
+    assert FakeTEIEmbedder.calls == []
 
 
-async def test_dense_only_kb_emits_only_the_dense_vector(db_sessionmaker, qdrant):
-    kb_id, node_id, config = await _setup(db_sessionmaker, qdrant, DENSE)
-    await IndexingService(db_sessionmaker, qdrant).create_index(
-        _doc("a.md", "alpha beta gamma"), config, node_id=node_id, kb_id=kb_id
-    )
-    points = (await qdrant.scroll(kb_id, limit=10, with_vectors=True))[0]
-    assert all(set(p.vector) == {DENSE} for p in points)  # type: ignore[arg-type]
+async def test_unregistered_chunking_model_fails_the_index(db_sessionmaker, qdrant):
+    kb_id, node_id, _ = await _setup(db_sessionmaker, qdrant, Bm25Index())
+    bad = KbConfig(chunking_method="semantic", chunking_model_id="gone")
 
-
-async def test_hybrid_kb_emits_both_vectors_on_every_point(db_sessionmaker, qdrant):
-    kb_id, node_id, config = await _setup(db_sessionmaker, qdrant, DENSE, "bm25")
-    await IndexingService(db_sessionmaker, qdrant).create_index(
-        _doc("a.md", "alpha beta gamma"), config, node_id=node_id, kb_id=kb_id
-    )
-    points = (await qdrant.scroll(kb_id, limit=10, with_vectors=True))[0]
-    assert points
-    assert all(set(p.vector) == {DENSE, "bm25"} for p in points)  # type: ignore[arg-type]
-
-
-async def test_point_payload_links_back_to_parent_and_node(db_sessionmaker, qdrant):
-    kb_id, node_id, config = await _setup(db_sessionmaker, qdrant, "bm25")
-    await IndexingService(db_sessionmaker, qdrant).create_index(
-        _doc("a.md", "alpha beta gamma"), config, node_id=node_id, kb_id=kb_id
-    )
-    point = (await qdrant.scroll(kb_id, limit=1))[0][0]
-
-    async with db_sessionmaker() as session:
-        parent_ids = {
-            r.id for r in (await session.execute(select(ChunkRow))).scalars().all()
-        }
-    assert point.payload["chunk_id"] in parent_ids  # type: ignore[index]
-    assert point.payload["node_id"] == node_id  # type: ignore[index]
-    assert point.payload["source"] == "a.md"  # type: ignore[index]
-    # the collection *is* the kb, so the payload doesn't repeat it
-    assert "kb_id" not in point.payload  # type: ignore[operator]
-
-
-async def test_point_payload_carries_parent_pages(db_sessionmaker, qdrant):
-    kb_id, node_id, config = await _setup(db_sessionmaker, qdrant, "bm25")
-    await IndexingService(db_sessionmaker, qdrant).create_index(
-        _doc("a.md", "alpha", "beta"), config, node_id=node_id, kb_id=kb_id
-    )
-    points = (await qdrant.scroll(kb_id, limit=10))[0]
-    assert all(p.payload["pages"] == [0, 1] for p in points)  # type: ignore[index]
-
-
-async def test_indexing_an_empty_document_writes_nothing(db_sessionmaker, qdrant):
-    kb_id, node_id, config = await _setup(db_sessionmaker, qdrant, "bm25")
-    await IndexingService(db_sessionmaker, qdrant).create_index(
-        _doc("empty.md"), config, node_id=node_id, kb_id=kb_id
-    )
+    with pytest.raises(HTTPException) as exc:
+        await _index(db_sessionmaker, qdrant, kb_id, node_id, bad, [("a.md", "alpha")])
+    assert exc.value.status_code == 404
     assert (await qdrant.count(kb_id)).count == 0
 
 
-async def test_unsupported_index_type_is_rejected_at_resolution(
-    db_sessionmaker, qdrant
-):
-    service = IndexingService(db_sessionmaker, qdrant)
-    with pytest.raises(ValueError, match="Unsupported index type"):
-        service._get_embedding_model_from_config(
-            IndexingConfig.model_construct(index_types=["word2vec"])
-        )
+# ── delete_index ─────────────────────────────────────────────────────────────
+
+async def _add_node(db_sessionmaker, kb_id: str, name: str) -> str:
+    async with db_sessionmaker() as session:
+        node = Node(kb_id=kb_id, name=name, type="file")
+        session.add(node)
+        await session.commit()
+        return node.id
 
 
-# ── retrieval ────────────────────────────────────────────────────────────────
+async def _node_ids(qdrant, kb_id) -> set[str]:
+    points = (await qdrant.scroll(kb_id, limit=100))[0]
+    return {p.payload["node_id"] for p in points}  # type: ignore[index]
 
-async def _index_docs(db_sessionmaker, qdrant, kb_id, node_id, config, docs):
+
+async def test_delete_index_drops_only_that_nodes_points(db_sessionmaker, qdrant, ids):
+    kb_id, keep, config = await _setup(
+        db_sessionmaker, qdrant, Bm25Index(), VectorIndex(model_id=ids["dense-a"])
+    )
+    drop = await _add_node(db_sessionmaker, kb_id, "b.md")
     indexer = IndexingService(db_sessionmaker, qdrant)
-    for source, text in docs:
-        await indexer.create_index(
-            _doc(source, text), config, node_id=node_id, kb_id=kb_id
-        )
+    await indexer.create_index(_doc("a.md", "alpha " * 300), config, node_id=keep, kb_id=kb_id)
+    await indexer.create_index(_doc("b.md", "beta " * 300), config, node_id=drop, kb_id=kb_id)
+    assert await _node_ids(qdrant, kb_id) == {keep, drop}
+
+    await indexer.delete_index(node_id=drop, kb_id=kb_id)
+
+    assert await _node_ids(qdrant, kb_id) == {keep}
 
 
-async def test_retrieve_returns_parent_chunks_not_children(db_sessionmaker, qdrant):
-    kb_id, node_id, config = await _setup(db_sessionmaker, qdrant, "bm25")
-    await _index_docs(
+async def test_delete_index_for_a_node_with_no_points_is_a_no_op(db_sessionmaker, qdrant):
+    kb_id, node_id, config = await _setup(db_sessionmaker, qdrant, Bm25Index())
+    await _index(db_sessionmaker, qdrant, kb_id, node_id, config, [("a.md", "alpha")])
+    before = (await qdrant.count(kb_id)).count
+
+    await IndexingService(db_sessionmaker, qdrant).delete_index(node_id="never-indexed", kb_id=kb_id)
+
+    assert (await qdrant.count(kb_id)).count == before
+
+
+# ── retrieval: choosing from what the KB offers ──────────────────────────────
+
+async def test_retrieve_returns_parent_chunks_ranked_lexically(db_sessionmaker, qdrant):
+    kb_id, node_id, config = await _setup(db_sessionmaker, qdrant, Bm25Index())
+    await _index(
         db_sessionmaker, qdrant, kb_id, node_id, config,
-        [("a.md", "pelicans nest on the cliffs " * 40)],
+        [("a.md", "gardening tips for tomatoes"), ("b.md", "qdrant stores sparse vectors")],
     )
 
     hits = await RetrievalService(db_sessionmaker, qdrant).retrieve(
-        kb_id, "pelicans", index_types=["bm25"]
+        kb_id, "sparse vectors", index_types=[Bm25Index()]
     )
-    assert hits
+    assert "sparse vectors" in hits[0].chunk.content
     async with db_sessionmaker() as session:
-        parent_ids = {
-            r.id for r in (await session.execute(select(ChunkRow))).scalars().all()
-        }
+        parent_ids = {r.id for r in (await session.execute(select(ChunkRow))).scalars()}
     assert all(h.chunk.id in parent_ids for h in hits)
 
 
-async def test_retrieve_ranks_the_lexical_match_first(db_sessionmaker, qdrant):
-    kb_id, node_id, config = await _setup(db_sessionmaker, qdrant, "bm25")
-    await _index_docs(
+async def test_hybrid_retrieval_fuses_both_indexes(db_sessionmaker, qdrant, ids):
+    """One doc is reachable only lexically, the other only densely. Fusion must
+    surface both; bm25 alone must not."""
+    a = ids["dense-a"]
+    kb_id, node_id, config = await _setup(
+        db_sessionmaker, qdrant, VectorIndex(model_id=a), Bm25Index()
+    )
+    await _index(
         db_sessionmaker, qdrant, kb_id, node_id, config,
-        [
-            ("a.md", "gardening tips for tomatoes and basil"),
-            ("b.md", "qdrant stores sparse vectors for retrieval"),
-        ],
-    )
-
-    hits = await RetrievalService(db_sessionmaker, qdrant).retrieve(
-        kb_id, "sparse vectors", index_types=["bm25"]
-    )
-    assert hits
-    assert "sparse vectors" in hits[0].chunk.content
-
-
-async def test_retrieve_scores_are_descending(db_sessionmaker, qdrant):
-    kb_id, node_id, config = await _setup(db_sessionmaker, qdrant, "bm25")
-    await _index_docs(
-        db_sessionmaker, qdrant, kb_id, node_id, config,
-        [(f"{i}.md", f"document {i} about retrieval") for i in range(5)],
-    )
-
-    hits = await RetrievalService(db_sessionmaker, qdrant).retrieve(
-        kb_id, "retrieval", index_types=["bm25"], top_k=5
-    )
-    assert [h.score for h in hits] == sorted((h.score for h in hits), reverse=True)
-
-
-async def test_retrieve_honours_top_k(db_sessionmaker, qdrant):
-    kb_id, node_id, config = await _setup(db_sessionmaker, qdrant, "bm25")
-    await _index_docs(
-        db_sessionmaker, qdrant, kb_id, node_id, config,
-        [(f"{i}.md", f"document {i} about retrieval") for i in range(5)],
-    )
-
-    hits = await RetrievalService(db_sessionmaker, qdrant).retrieve(
-        kb_id, "retrieval", index_types=["bm25"], top_k=2
-    )
-    assert len(hits) == 2
-
-
-async def test_retrieve_collapses_children_to_one_hit_per_parent(
-    db_sessionmaker, qdrant
-):
-    kb_id, node_id, config = await _setup(db_sessionmaker, qdrant, "bm25")
-    await _index_docs(
-        db_sessionmaker, qdrant, kb_id, node_id, config,
-        [("a.md", "retrieval " * 400)],  # many children, all under one parent
-    )
-    assert (await qdrant.count(kb_id)).count > 1
-
-    hits = await RetrievalService(db_sessionmaker, qdrant).retrieve(
-        kb_id, "retrieval", index_types=["bm25"], top_k=10
-    )
-    assert len({h.chunk.id for h in hits}) == len(hits)
-
-
-async def test_retrieve_on_empty_kb_returns_nothing(db_sessionmaker, qdrant):
-    kb_id, _, _ = await _setup(db_sessionmaker, qdrant, "bm25")
-    hits = await RetrievalService(db_sessionmaker, qdrant).retrieve(
-        kb_id, "anything", index_types=["bm25"]
-    )
-    assert hits == []
-
-
-async def test_retrieve_uses_both_indices_when_hybrid(db_sessionmaker, qdrant):
-    """One doc is reachable only lexically, the other only densely (its marker is
-    invisible to the tokenizer). Fusion must surface both; bm25 alone must not."""
-    kb_id, node_id, config = await _setup(db_sessionmaker, qdrant, DENSE, "bm25")
-    await _index_docs(
-        db_sessionmaker, qdrant, kb_id, node_id, config,
-        [
-            ("lexical.md", "pelicans and cormorants share the cliffs"),
-            ("dense.md", f"{DENSE_MARKER} covers something else entirely"),
-        ],
+        [("lexical.md", "pelicans share the cliffs"),
+         ("dense.md", f"{DENSE_MARKER} covers something else")],
     )
     service = RetrievalService(db_sessionmaker, qdrant)
     query = f"pelicans {DENSE_MARKER}"
 
-    lexical_only = await service.retrieve(kb_id, query, index_types=["bm25"], top_k=5)
-    assert [h.chunk.content for h in lexical_only] == [
-        "pelicans and cormorants share the cliffs"
-    ]
+    lexical = await service.retrieve(kb_id, query, index_types=[Bm25Index()], top_k=5)
+    assert [h.chunk.content for h in lexical] == ["pelicans share the cliffs"]
 
-    fused = await service.retrieve(kb_id, query, index_types=[DENSE, "bm25"], top_k=5)
+    fused = await service.retrieve(
+        kb_id, query, index_types=[VectorIndex(model_id=a), Bm25Index()], top_k=5
+    )
     contents = " ".join(h.chunk.content for h in fused)
-    assert "pelicans" in contents
-    assert DENSE_MARKER in contents
+    assert "pelicans" in contents and DENSE_MARKER in contents
 
 
-# ── retrieval guards ─────────────────────────────────────────────────────────
+async def test_dense_only_retrieval_from_a_hybrid_kb(db_sessionmaker, qdrant, ids):
+    a = ids["dense-a"]
+    kb_id, node_id, config = await _setup(
+        db_sessionmaker, qdrant, VectorIndex(model_id=a), Bm25Index()
+    )
+    await _index(
+        db_sessionmaker, qdrant, kb_id, node_id, config,
+        [("dense.md", f"{DENSE_MARKER} only the dense side sees this")],
+    )
+    FakeTEIEmbedder.calls = []
 
-async def test_retrieve_404s_on_unknown_kb(db_sessionmaker, qdrant):
+    hits = await RetrievalService(db_sessionmaker, qdrant).retrieve(
+        kb_id, DENSE_MARKER, index_types=[VectorIndex(model_id=a)]
+    )
+    assert DENSE_MARKER in hits[0].chunk.content
+    assert FakeTEIEmbedder.calls == [("dense-a", 1)]
+
+
+async def test_retrieval_picks_one_of_two_dense_models(db_sessionmaker, qdrant, ids):
+    a, b = ids["dense-a"], ids["dense-b"]
+    kb_id, node_id, config = await _setup(
+        db_sessionmaker, qdrant, VectorIndex(model_id=a), VectorIndex(model_id=b)
+    )
+    await _index(db_sessionmaker, qdrant, kb_id, node_id, config, [("a.md", "alpha")])
+    FakeTEIEmbedder.calls = []
+
+    await RetrievalService(db_sessionmaker, qdrant).retrieve(
+        kb_id, "alpha", index_types=[VectorIndex(model_id=b)]
+    )
+    assert FakeTEIEmbedder.calls == [("dense-b", 1)]
+
+
+@pytest.mark.parametrize(
+    "kb_indexes, requested",
+    [
+        (["bm25"], ["dense-a"]),
+        (["bm25"], ["bm25", "dense-a"]),
+        (["dense-a"], ["bm25"]),
+        (["dense-a"], ["dense-b"]),
+    ],
+    ids=["dense-on-sparse-kb", "partly-missing", "sparse-on-dense-kb", "other-dense-model"],
+)
+async def test_requesting_an_index_the_kb_lacks_is_a_409_before_embedding(
+    db_sessionmaker, qdrant, ids, kb_indexes, requested
+):
+    def spec(name):
+        return Bm25Index() if name == "bm25" else VectorIndex(model_id=ids[name])
+
+    kb_id, _, _ = await _setup(db_sessionmaker, qdrant, *map(spec, kb_indexes))
+    FakeTEIEmbedder.explode = True
+
     with pytest.raises(HTTPException) as exc:
         await RetrievalService(db_sessionmaker, qdrant).retrieve(
-            "does-not-exist", "q", index_types=["bm25"]
-        )
-    assert exc.value.status_code == 404
-
-
-async def test_retrieve_409s_on_index_the_kb_lacks(db_sessionmaker, qdrant):
-    kb_id, _, _ = await _setup(db_sessionmaker, qdrant, "bm25")
-    with pytest.raises(HTTPException) as exc:
-        await RetrievalService(db_sessionmaker, qdrant).retrieve(
-            kb_id, "q", index_types=[DENSE]
+            kb_id, "q", index_types=list(map(spec, requested))
         )
     assert exc.value.status_code == 409
     assert kb_id in exc.value.detail
 
 
-async def test_retrieve_409s_when_only_some_indices_are_missing(db_sessionmaker, qdrant):
-    kb_id, _, _ = await _setup(db_sessionmaker, qdrant, "bm25")
+async def test_retrieve_404s_on_unknown_kb(db_sessionmaker, qdrant):
     with pytest.raises(HTTPException) as exc:
         await RetrievalService(db_sessionmaker, qdrant).retrieve(
-            kb_id, "q", index_types=["bm25", DENSE]
+            "does-not-exist", "q", index_types=[Bm25Index()]
+        )
+    assert exc.value.status_code == 404
+
+
+# ── retrieval: reranking only when the KB has a reranker ─────────────────────
+
+async def _rerank_kb(db_sessionmaker, qdrant, reranker):
+    kb_id, node_id, config = await _setup(
+        db_sessionmaker, qdrant, Bm25Index(), reranker=reranker
+    )
+    await _index(
+        db_sessionmaker, qdrant, kb_id, node_id, config,
+        [("a.md", "coins coins coins"), ("b.md", "coins winner winner")],
+    )
+    return kb_id
+
+
+async def test_rerank_without_a_kb_reranker_is_a_409_before_embedding(
+    db_sessionmaker, qdrant
+):
+    kb_id = await _rerank_kb(db_sessionmaker, qdrant, None)
+    FakeTEIEmbedder.explode = True
+
+    with pytest.raises(HTTPException) as exc:
+        await RetrievalService(db_sessionmaker, qdrant).retrieve(
+            kb_id, "coins", index_types=[Bm25Index()], rerank_on="parent"
         )
     assert exc.value.status_code == 409
+    assert FakeTEIReranker.seen == []
 
 
-async def test_retrieve_accepts_a_subset_of_the_kb_indices(db_sessionmaker, qdrant):
-    kb_id, node_id, config = await _setup(db_sessionmaker, qdrant, DENSE, "bm25")
-    await _index_docs(
-        db_sessionmaker, qdrant, kb_id, node_id, config,
-        [("a.md", "pelicans nest on the cliffs")],
+@pytest.mark.parametrize("rerank_on", ["parent", "child"])
+async def test_rerank_uses_the_kb_reranker_model(db_sessionmaker, qdrant, ids, rerank_on):
+    kb_id = await _rerank_kb(
+        db_sessionmaker, qdrant, CrossEncoderReranker(model_id=ids["reranker"])
     )
+
     hits = await RetrievalService(db_sessionmaker, qdrant).retrieve(
-        kb_id, "pelicans", index_types=["bm25"]
+        kb_id, "coins", index_types=[Bm25Index()], rerank_on=rerank_on, top_k=2
     )
-    assert hits
+
+    assert hits[0].chunk.content == "coins winner winner"
+    assert [h.score for h in hits] == [2.0, 0.0]
+    [(model, query, texts)] = FakeTEIReranker.seen
+    assert (model, query) == ("reranker", "coins")
+    assert sorted(texts) == ["coins coins coins", "coins winner winner"]
 
 
-async def test_retrieve_guard_runs_before_any_embedding(
-    db_sessionmaker, qdrant, monkeypatch
-):
-    """The rejection must not cost an embedding call."""
-    kb_id, _, _ = await _setup(db_sessionmaker, qdrant, "bm25")
+async def test_configured_reranker_is_not_used_unless_asked(db_sessionmaker, qdrant, ids):
+    kb_id = await _rerank_kb(
+        db_sessionmaker, qdrant, CrossEncoderReranker(model_id=ids["reranker"])
+    )
+    await RetrievalService(db_sessionmaker, qdrant).retrieve(
+        kb_id, "coins", index_types=[Bm25Index()]
+    )
+    assert FakeTEIReranker.seen == []
 
-    class Exploding(FakeDense):
-        async def embed(self, texts):
-            raise AssertionError("embedded despite an invalid index type")
 
-    monkeypatch.setattr(retrieval_module, "TEIEmbedder", Exploding)
-    with pytest.raises(HTTPException):
+async def test_late_interaction_reranker_is_not_supported_yet(db_sessionmaker, qdrant, ids):
+    kb_id = await _rerank_kb(
+        db_sessionmaker, qdrant, LateInteractionReranker(model_id=ids["dense-a"])
+    )
+    with pytest.raises(ValueError, match="Unsupported reranker"):
         await RetrievalService(db_sessionmaker, qdrant).retrieve(
-            kb_id, "q", index_types=[DENSE]
+            kb_id, "coins", index_types=[Bm25Index()], rerank_on="parent"
         )
+
+
+async def test_reranker_model_that_is_gone_is_a_404(db_sessionmaker, qdrant):
+    kb_id = await _rerank_kb(
+        db_sessionmaker, qdrant, CrossEncoderReranker(model_id="gone")
+    )
+    with pytest.raises(HTTPException) as exc:
+        await RetrievalService(db_sessionmaker, qdrant).retrieve(
+            kb_id, "coins", index_types=[Bm25Index()], rerank_on="parent"
+        )
+    assert exc.value.status_code == 404

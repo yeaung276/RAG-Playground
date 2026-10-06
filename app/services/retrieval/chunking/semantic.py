@@ -6,18 +6,18 @@ from langchain_experimental.text_splitter import SemanticChunker as LCSemanticCh
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from app.services.retrieval.chunking.base import Chunker
-from app.services.retrieval.embedding import TEIEmbedder
+from app.services.models.embedding import Embedder
 
 TEI_MAX_BATCH = 32
 
 
 class _TEIEmbeddings(Embeddings):
-    """Synchronous langchain Embeddings backed by the async TEIEmbedder (bge-m3).
+    """Synchronous langchain Embeddings backed by an async Embedder.
     Embeds in batches of TEI_MAX_BATCH and returns vectors in input order. Callable
     from a worker thread; must be constructed on the event loop it dispatches to."""
 
-    def __init__(self):
-        self._embedder = TEIEmbedder("BAAI/bge-m3")
+    def __init__(self, embedder: Embedder):
+        self._embedder = embedder
         self._loop = asyncio.get_running_loop()
 
     def _embed_batch(self, batch: list[str]) -> list[list[float]]:
@@ -63,14 +63,10 @@ class _CappedSemanticSplitter:
 
 
 class SemanticChunker(Chunker):
-    _embeddings: _TEIEmbeddings | None = None
-
-    def __init__(self, max_chunk_size: int, min_chunk_size: int):
+    def __init__(self, max_chunk_size: int, min_chunk_size: int, embedder: Embedder):
         super().__init__()
-        if SemanticChunker._embeddings is None:
-            SemanticChunker._embeddings = _TEIEmbeddings()
         self.parent_splitter = _CappedSemanticSplitter(
-            SemanticChunker._embeddings,
+            _TEIEmbeddings(embedder),
             min_chunk_size=min_chunk_size,
             max_chunk_size=max_chunk_size,
         )

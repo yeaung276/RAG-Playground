@@ -41,6 +41,7 @@ Describe the image's main elements (people, objects, text), note any contextual 
 """
 
 
+_TEXT_MIME_PREFIX = "text/"
 _PDF_MIME = "application/pdf"
 _IMAGE_MIMES = {
     "image/png",
@@ -63,10 +64,12 @@ _pdfium_lock = threading.Lock()
 class ExtractionService:
     @staticmethod
     def kind(mime_type: str | None) -> str | None:
-        """Return "pdf", "image", or None for an unsupported/unknown MIME type."""
+        """Return "text", "pdf", "image", or None for an unsupported/unknown MIME type."""
         if mime_type is None:
             return None
         mime_type = mime_type.split(";", 1)[0].strip().lower()
+        if mime_type.startswith(_TEXT_MIME_PREFIX):
+            return "text"
         if mime_type == _PDF_MIME:
             return "pdf"
         if mime_type in _IMAGE_MIMES:
@@ -75,7 +78,7 @@ class ExtractionService:
 
     @staticmethod
     def is_supported(mime_type: str | None) -> bool:
-        """Whether a file with this MIME type can be OCR'd."""
+        """Whether a file with this MIME type can be extracted."""
         return ExtractionService.kind(mime_type) is not None
 
     def __init__(
@@ -99,25 +102,40 @@ class ExtractionService:
         self, file: BytesIO, mime_type: str | None, name: str = "document"
     ) -> Document:
         kind = self.kind(mime_type)
+        if kind == "text":
+            return self.process_text(file, name=name)
         if kind == "pdf":
             return await self.process_pdf(file, name=name)
         if kind == "image":
             return await self.process_img(file, name=name)
-        raise ValueError(f"Unsupported MIME type for OCR: {mime_type!r}")
+        raise ValueError(f"Unsupported MIME type for extraction: {mime_type!r}")
+
+    def process_text(self, file: BytesIO, name: str = "document") -> Document:
+        logger.info("Reading text file '%s'", name)
+        text = file.read().decode("utf-8", errors="replace")
+        return Document(source=name, pages=[self._page(0, text)])
 
     async def process_pdf(self, file: BytesIO, name: str = "document") -> Document:
-        logger.info("Starting OCR for '%s'", name)
-        images = await asyncio.to_thread(self._render_pdf, file, name)
-        logger.info("Sending %d page(s) of '%s' for OCR", len(images), name)
-        results = await asyncio.gather(
-            *[
-                self._send_ocr_request(p, page_no=i + 1, total=len(images), name=name)
-                for i, p in enumerate(images)
-            ]
-        )
-        logger.info("Completed OCR for '%s' (%d page(s))", name, len(images))
+        logger.info("Extracting text layer for '%s'", name)
+        pages = await asyncio.to_thread(self._extract_pdf_text, file, name)
+        missing = [i for i, text in enumerate(pages) if not text.strip()]
+        if missing:
+            logger.info(
+                "Sending %d of %d page(s) of '%s' for OCR (no text layer)",
+                len(missing), len(pages), name,
+            )
+            images = await asyncio.to_thread(self._render_pdf, file, missing, name)
+            results = await asyncio.gather(
+                *[
+                    self._send_ocr_request(img, page_no=i + 1, total=len(pages), name=name)
+                    for i, img in zip(missing, images)
+                ]
+            )
+            for i, md in zip(missing, results):
+                pages[i] = md
+        logger.info("Completed extraction for '%s' (%d page(s))", name, len(pages))
         return Document(
-            source=name, pages=[self._page(i, md) for i, md in enumerate(results)]
+            source=name, pages=[self._page(i, md) for i, md in enumerate(pages)]
         )
 
     async def process_img(self, file: BytesIO, name: str = "image") -> Document:
@@ -135,16 +153,35 @@ class ExtractionService:
             blocks=[Block(type=BlockType.TEXT, content=markdown)],
         )
 
-    def _render_pdf(self, file: BytesIO, name: str = "document") -> list[str]:
+    def _extract_pdf_text(self, file: BytesIO, name: str = "document") -> list[str]:
+        """Each page's embedded text layer; "" for a page that has none (scanned)."""
         with _pdfium_lock:
+            file.seek(0)
+            pdf = pdfium.PdfDocument(file)
+            try:
+                out = []
+                for page in pdf:
+                    textpage = page.get_textpage()
+                    out.append(textpage.get_text_range())
+                    textpage.close()
+                    page.close()
+                return out
+            finally:
+                pdf.close()
+
+    def _render_pdf(
+        self, file: BytesIO, indices: list[int], name: str = "document"
+    ) -> list[str]:
+        with _pdfium_lock:
+            file.seek(0)
             pdf = pdfium.PdfDocument(file)
             try:
                 total = len(pdf)
-                logger.info("Rendering '%s' (%d page(s))", name, total)
                 out = []
-                for i, page in enumerate(pdf):
+                for i in indices:
                     logger.info("Rendering page %d of %d for '%s'", i + 1, total, name)
-                    # TODO: try to extract text layer first, if it give nothing or has tables, only then, apply OCR.
+                    # TODO: also fall back to OCR when the text layer has tables.
+                    page = pdf[i]
                     scale = self.dim / max(page.get_size())
                     img = page.render(scale=scale).to_pil()
                     out.append(self._to_b64_jpeg(img))

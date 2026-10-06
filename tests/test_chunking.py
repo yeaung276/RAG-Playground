@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from langchain_core.documents import Document as LCDocument
 from langchain_core.embeddings import Embeddings
@@ -8,16 +10,8 @@ from app.services.retrieval.chunking import (
     RecursiveChunker,
     SemanticChunker,
 )
-from app.services.retrieval.chunking import semantic
 from app.services.retrieval.chunking.semantic import _CappedSemanticSplitter
 from app.services.retrieval.document import Document, Page
-
-
-@pytest.fixture(autouse=True)
-def reset_semantic_embeddings(monkeypatch):
-    # SemanticChunker caches its embeddings on the class, so one test's fake leaks
-    # into the next
-    monkeypatch.setattr(SemanticChunker, "_embeddings", None)
 
 
 def _doc(*markdowns: str) -> Document:
@@ -197,29 +191,73 @@ def test_capped_semantic_splitter_keeps_absolute_offsets():
 
 # ── semantic chunker (mocked embedding model) ────────────────────────────────
 
-def test_semantic_chunker_splits_on_topic_change(monkeypatch):
-    monkeypatch.setattr(semantic, "_TEIEmbeddings", FakeEmbeddings)
+class TopicEmbedder:
+    """Async Embedder like ModelService resolves: 'TOPIC_B' sentences are orthogonal
+    to the rest. Records every batch it is asked to embed."""
+
+    def __init__(self, model: str = "topic"):
+        self.model = model
+        self.batches: list[list[str]] = []
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        self.batches.append(texts)
+        return [[0.0, 1.0] if "TOPIC_B" in t else [1.0, 0.0] for t in texts]
+
+
+async def _semantic_chunk(embedder, document, **sizes):
+    # built on the loop, run on a worker thread — the way IndexingService drives it
+    chunker = SemanticChunker(embedder=embedder, **sizes)
+    return await asyncio.to_thread(chunker.chunk, document)
+
+
+async def test_semantic_chunker_splits_on_topic_change():
     alpha = "The coin is round. " * 4
     beta = "TOPIC_B is unrelated. " * 4
-    corpus = SemanticChunker(max_chunk_size=5000, min_chunk_size=10).chunk(_doc(alpha + beta))
+    corpus = await _semantic_chunk(
+        TopicEmbedder(), _doc(alpha + beta), max_chunk_size=5000, min_chunk_size=10
+    )
     # the topic change forces a break: first parent is pure topic-A, topic-B lands later
     assert len(corpus.parents) >= 2
     assert "TOPIC_B" not in corpus.parents[0].content
     assert "TOPIC_B" in corpus.parents[-1].content
 
 
-def test_semantic_chunker_caps_and_attributes_pages(monkeypatch):
-    monkeypatch.setattr(semantic, "_TEIEmbeddings", FakeEmbeddings)
-    corpus = SemanticChunker(max_chunk_size=300, min_chunk_size=50).chunk(
-        _doc("the coin is round. " * 60)
+async def test_semantic_chunker_caps_and_attributes_pages():
+    corpus = await _semantic_chunk(
+        TopicEmbedder(), _doc("the coin is round. " * 60),
+        max_chunk_size=300, min_chunk_size=50,
     )
     assert corpus.parents
     assert max(len(p.content) for p in corpus.parents) <= 300
     assert all(p.metadata["pages"] == [0] for p in corpus.parents)
 
 
-def test_semantic_chunker_requires_tei_env(monkeypatch):
-    # bge/TEI is hardcoded; with no endpoint configured, construction must fail
-    monkeypatch.delenv("TEI_EMBEDDING_BASE_URL", raising=False)
-    with pytest.raises(ValueError, match="TEI_EMBEDDING_BASE_URL"):
-        SemanticChunker(max_chunk_size=1000, min_chunk_size=256)
+async def test_semantic_chunker_embeds_with_the_embedder_it_was_given():
+    embedder = TopicEmbedder()
+    await _semantic_chunk(
+        embedder, _doc("The coin is round. TOPIC_B is unrelated. " * 3),
+        max_chunk_size=5000, min_chunk_size=10,
+    )
+    assert embedder.batches
+    assert all(isinstance(t, str) for batch in embedder.batches for t in batch)
+
+
+async def test_semantic_chunkers_do_not_share_an_embedder():
+    """Each KB brings its own chunking model, so one chunker must never reuse
+    another's."""
+    first, second = TopicEmbedder("first"), TopicEmbedder("second")
+    await _semantic_chunk(first, _doc("The coin is round. " * 4), max_chunk_size=5000, min_chunk_size=10)
+    await _semantic_chunk(second, _doc("The coin is round. " * 4), max_chunk_size=5000, min_chunk_size=10)
+    assert first.batches and second.batches
+
+
+async def test_semantic_chunker_surfaces_embedder_failures():
+    class Failing(TopicEmbedder):
+        async def embed(self, texts):
+            raise RuntimeError("endpoint down")
+
+    with pytest.raises(RuntimeError, match="endpoint down"):
+        await _semantic_chunk(
+            Failing(), _doc("The coin is round. TOPIC_B is unrelated. " * 3),
+            max_chunk_size=5000, min_chunk_size=10,
+        )

@@ -215,7 +215,11 @@ class GenerationService:
 
         async def search_knowledge(query: str) -> tuple[str, ToolTestResult]:
             started = time.perf_counter()
-            hits = await self.retrieval.retrieve(agent.knowledge_id, query, **kwargs)
+            hits = await self.retrieval.retrieve(
+                agent.knowledge_id,
+                query,
+                **{**kwargs, "index_types": agent.knowledge_config.index_types},
+            )
             passages = "\n\n".join(
                 hit.chunk.content if hit.chunk else hit.matched_text for hit in hits
             )

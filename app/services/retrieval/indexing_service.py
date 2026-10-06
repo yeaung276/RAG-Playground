@@ -11,13 +11,9 @@ from app.services.retrieval.chunking import (
     RecursiveChunker,
     SemanticChunker,
 )
-from app.services.retrieval.document import Document, IndexTypes, IndexingConfig
-from app.services.retrieval.embedding import (
-    Bm25Embedder,
-    Embedder,
-    OpenAIEmbedder,
-    TEIEmbedder,
-)
+from app.services.models.embedding import Bm25Embedder, Embedder
+from app.services.models.model_service import ModelService
+from app.services.retrieval.document import Document, KbConfig
 
 logger = get_logger(__name__)
 
@@ -30,7 +26,7 @@ class IndexingService:
     async def create_index(
         self,
         document: Document,
-        config: IndexingConfig,
+        config: KbConfig,
         *,
         node_id: str,
         kb_id: str,
@@ -38,8 +34,8 @@ class IndexingService:
         """Chunk a document, embed its child chunks, and persist parents (chunk
         table) + children (the KB's Qdrant collection). Opens and commits its own
         session, holding it open until the upsert lands."""
-        chunker = self._get_chunker_from_config(config)
-        embedders = self._get_embedding_model_from_config(config)
+        chunker = await self._get_chunker_from_config(config)
+        embedders = await self._get_embedding_model_from_config(config)
 
         # chunking is sync + blocking (splitters, and semantic does sync HTTP)
         corpus = await asyncio.to_thread(chunker.chunk, document)
@@ -93,24 +89,40 @@ class IndexingService:
             len(corpus.children),
         )
 
-    def _get_embedding_model_from_config(
-        self, config: IndexingConfig
-    ) -> dict[IndexTypes, Embedder]:
+    async def delete_index(self, *, node_id: str, kb_id: str) -> None:
+        """Drop a node's child embeddings from the KB's Qdrant collection."""
+        await self.qdrant.delete(
+            kb_id,
+            points_selector=models.FilterSelector(
+                filter=models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="node_id", match=models.MatchValue(value=node_id)
+                        )
+                    ]
+                )
+            ),
+        )
+
+    async def _get_embedding_model_from_config(
+        self, config: KbConfig
+    ) -> dict[str, Embedder]:
         """Resolve the config's index types to their backing adapters."""
-        embedders: dict[IndexTypes, Embedder] = {}
-        for index_type in config.index_types:
-            match index_type:
-                case "BAAI/bge-m3":
-                    embedders[index_type] = TEIEmbedder(index_type)
-                case "text-embedding-3-small" | "text-embedding-3-large":
-                    embedders[index_type] = OpenAIEmbedder(index_type)
-                case "bm25":
-                    embedders[index_type] = Bm25Embedder(index_type)
-                case _:
-                    raise ValueError(f"Unsupported index type: {index_type!r}")
+        embedders: dict[str, Embedder] = {}
+        async with self.session_maker() as session:
+            for index in config.index_types:
+                match index.type:
+                    case "bm25":
+                        embedders[index.vector_name] = Bm25Embedder()
+                    case "vector":
+                        embedders[index.vector_name] = await ModelService(
+                            session
+                        ).resolve_model(index.model_id)
+                    case _:
+                        raise ValueError(f"Unsupported index type: {index!r}")
         return embedders
 
-    def _get_chunker_from_config(self, config: IndexingConfig) -> Chunker:
+    async def _get_chunker_from_config(self, config: KbConfig) -> Chunker:
         """Resolve the config's chunking method to its backing chunker."""
         match config.chunking_method:
             case "fix-sized":
@@ -118,7 +130,13 @@ class IndexingService:
             case "recursive":
                 return RecursiveChunker(config.max_chunk_size)
             case "semantic":
-                return SemanticChunker(config.max_chunk_size, config.min_chunk_size)
+                async with self.session_maker() as session:
+                    embedder = await ModelService(session).resolve_model(
+                        config.chunking_model_id
+                    )
+                return SemanticChunker(
+                    config.max_chunk_size, config.min_chunk_size, embedder
+                )
             case _:
                 raise ValueError(
                     f"Unsupported chunking method: {config.chunking_method!r}"

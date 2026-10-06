@@ -11,7 +11,12 @@ import pytest
 from aiolimiter import AsyncLimiter
 
 from app.services.retrieval.chunking.semantic import TEI_MAX_BATCH, _TEIEmbeddings
-from app.services.retrieval.embedding import tei
+from app.services.models.embedding import tei
+
+
+def _embeddings() -> _TEIEmbeddings:
+    """The wrapper around the TEI client ModelService resolves for a TEI bi-encoder."""
+    return _TEIEmbeddings(tei.TEIEmbedder("BAAI/bge-m3"))
 
 
 @pytest.fixture(autouse=True)
@@ -45,7 +50,7 @@ async def test_posts_inputs_to_the_embed_route():
         seen.append(request)
         return httpx.Response(200, json=[[1.0, 0.0]])
 
-    embeddings = _stub(_TEIEmbeddings(), handler)
+    embeddings = _stub(_embeddings(), handler)
     vectors = await asyncio.to_thread(embeddings.embed_documents, ["a"])
 
     assert vectors == [[1.0, 0.0]]
@@ -62,7 +67,7 @@ async def test_api_key_is_optional(monkeypatch):
         seen.append(request)
         return httpx.Response(200, json=[[1.0]])
 
-    embeddings = _stub(_TEIEmbeddings(), handler)
+    embeddings = _stub(_embeddings(), handler)
     await asyncio.to_thread(embeddings.embed_documents, ["a"])
 
     assert "authorization" not in seen[0].headers
@@ -76,7 +81,7 @@ async def test_batches_at_tei_max_batch_and_preserves_order():
         return _echo_index(request)
 
     texts = [f"t{i}" for i in range(TEI_MAX_BATCH * 2 + 6)]
-    embeddings = _stub(_TEIEmbeddings(), handler)
+    embeddings = _stub(_embeddings(), handler)
     vectors = await asyncio.to_thread(embeddings.embed_documents, texts)
 
     assert [len(b) for b in batches] == [TEI_MAX_BATCH, TEI_MAX_BATCH, 6]
@@ -84,7 +89,7 @@ async def test_batches_at_tei_max_batch_and_preserves_order():
 
 
 async def test_embed_query_returns_one_vector():
-    embeddings = _stub(_TEIEmbeddings(), _echo_index)
+    embeddings = _stub(_embeddings(), _echo_index)
     assert await asyncio.to_thread(embeddings.embed_query, "t7") == [7.0]
 
 
@@ -97,7 +102,7 @@ async def test_retries_transient_failure():
             return httpx.Response(503)
         return httpx.Response(200, json=[[1.0]])
 
-    embeddings = _stub(_TEIEmbeddings(), handler)
+    embeddings = _stub(_embeddings(), handler)
     assert await asyncio.to_thread(embeddings.embed_documents, ["a"]) == [[1.0]]
     assert len(attempts) == 2
 
@@ -109,7 +114,7 @@ async def test_client_error_propagates_without_retry():
         attempts.append(request)
         return httpx.Response(400)
 
-    embeddings = _stub(_TEIEmbeddings(), handler)
+    embeddings = _stub(_embeddings(), handler)
     with pytest.raises(httpx.HTTPStatusError):
         await asyncio.to_thread(embeddings.embed_documents, ["a"])
     assert len(attempts) == 1
@@ -119,7 +124,7 @@ async def test_missing_base_url_raises():
     monkeypatch = pytest.MonkeyPatch()
     monkeypatch.delenv("TEI_EMBEDDING_BASE_URL", raising=False)
     with pytest.raises(ValueError, match="TEI_EMBEDDING_BASE_URL"):
-        _TEIEmbeddings()
+        _embeddings()
     monkeypatch.undo()
 
 
@@ -127,7 +132,7 @@ async def test_batches_are_rate_limited(monkeypatch):
     monkeypatch.setattr(tei, "_limiter", AsyncLimiter(2, 1))
     texts = [f"t{i}" for i in range(TEI_MAX_BATCH * 2 + 1)]
 
-    embeddings = _stub(_TEIEmbeddings(), _echo_index)
+    embeddings = _stub(_embeddings(), _echo_index)
     started = time.monotonic()
     await asyncio.to_thread(embeddings.embed_documents, texts)
 

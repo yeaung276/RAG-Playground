@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { requestAt } from './client';
 import type { KnowledgeBaseConfig } from './config';
-import type { DatasetStatus } from './datasets';
-
 const BASE = '/api/admin/experiments';
+
+export type ExperimentStatus = 'pending' | 'importing' | 'running' | 'success' | 'failed';
+
+const isActive = (status: ExperimentStatus) => status !== 'success' && status !== 'failed';
 
 export const METRICS = ['context_precision', 'context_recall', 'hit_rate', 'mrr'] as const;
 export type Metric = (typeof METRICS)[number];
@@ -20,10 +22,10 @@ export interface Experiment {
   id: string;
   datasetId: string;
   knowledgeId: string | null;
-  indexingConfig: KnowledgeBaseConfig | null;
-  knowledgeConfig: RetrievalConfig;
+  kbConfig: KnowledgeBaseConfig | null;
+  retrievalConfig: RetrievalConfig;
   metrics: Metric[];
-  status: DatasetStatus;
+  status: ExperimentStatus;
   error: string | null;
   createdAt: string;
   updatedAt: string;
@@ -39,8 +41,8 @@ export interface ExperimentPage {
 export interface ExperimentInput {
   datasetId: string;
   knowledgeId: string | null;
-  indexingConfig: KnowledgeBaseConfig | null;
-  knowledgeConfig: RetrievalConfig;
+  kbConfig: KnowledgeBaseConfig | null;
+  retrievalConfig: RetrievalConfig;
   metrics: Metric[];
 }
 
@@ -70,9 +72,7 @@ export function useExperiments(page = 1, pageSize = 20, datasetId: string | null
     queryFn: () => requestAt<ExperimentPage>(`${BASE}?${params}`),
     // Runs are scored in the background: poll while anything is still working.
     refetchInterval: (query) =>
-      query.state.data?.items.some((e) => e.status === 'pending' || e.status === 'running')
-        ? 15_000
-        : false,
+      query.state.data?.items.some((e) => isActive(e.status)) ? 15_000 : false,
   });
 }
 
@@ -82,9 +82,7 @@ export function useExperiment(id: string | null) {
     queryFn: () => requestAt<Experiment>(`${BASE}/${id}`),
     enabled: !!id,
     refetchInterval: (query) =>
-      query.state.data?.status === 'pending' || query.state.data?.status === 'running'
-        ? 15_000
-        : false,
+      query.state.data && isActive(query.state.data.status) ? 15_000 : false,
   });
 }
 

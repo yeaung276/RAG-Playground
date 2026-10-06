@@ -87,5 +87,5 @@ async def delete_node(
 ):
     storage_keys = await svc.delete_node(kb_id, node_id)
     if storage_keys:
-        background_tasks.add_task(processor.delete, storage_keys)
+        background_tasks.add_task(processor.delete, kb_id, node_id, storage_keys)
     return Response(status_code=204)

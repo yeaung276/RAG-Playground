@@ -1,6 +1,6 @@
 from app.logger import get_logger
 from app.models.node import Node
-from app.services.retrieval.document import IndexingConfig
+from app.services.retrieval.document import KbConfig
 from app.services.retrieval.extraction_service import ExtractionService
 from app.services.retrieval.indexing_service import IndexingService
 from app.storage import Storage
@@ -11,15 +11,6 @@ _MAX_ERROR_LEN = 2000
 
 
 class FileProcessor:
-    """Runs a knowledge base's file work outside the request lifecycle: OCR of
-    uploaded bytes into chunks, and out-of-band blob cleanup.
-
-    Scheduled from the route via `BackgroundTasks`, so it holds only
-    background-safe collaborators — the shared OCR/storage singletons and a
-    session *maker* — and opens its own DB session per task rather than
-    borrowing the request-scoped one.
-    """
-
     def __init__(
         self,
         storage: Storage,
@@ -65,7 +56,7 @@ class FileProcessor:
                 logger.info(
                     "Indexing file %s with config %s", node.storage_key, node.config
                 )
-                config = IndexingConfig(**(node.config or {}))
+                config = KbConfig(**(node.config or {}))
                 await self.indexing.create_index(
                     document, config, node_id=node_id, kb_id=node.kb_id
                 )
@@ -82,6 +73,23 @@ class FileProcessor:
                 logger.exception("Indexing failed for node %s", node_id)
         except Exception:  # noqa: BLE001 — a background task must never crash its caller
             logger.exception("File processing task crashed for node %s", node_id)
+
+    async def delete(self, kb_id: str, node_id: str, storage_keys: list[str]) -> None:
+        """Delete the vectors and blob(s) for a removed file node.
+
+        The DB rows are already gone (deleted synchronously in the request);
+        this cleans up Qdrant and storage out of band since that IO can be slow.
+        It never crashes its caller.
+        """
+        try:
+            await self.indexing.delete_index(node_id=node_id, kb_id=kb_id)
+            for key in storage_keys:
+                await self.storage.delete(key)
+            logger.info(
+                "Deleted vectors and %d blob(s) for node %s", len(storage_keys), node_id
+            )
+        except Exception:  # noqa: BLE001 — a background task must never crash its caller
+            logger.exception("Cleanup failed for node %s", node_id)
 
     async def _load(self, node_id: str) -> Node | None:
         """Brief read: fetch the node, detached, for its OCR/index inputs."""
@@ -106,20 +114,3 @@ class FileProcessor:
             if content is not None:
                 node.content = content
             await session.commit()
-
-    async def delete(self, storage_keys: list[str]) -> None:
-        """Delete the blob(s) for removed file node(s).
-
-        The DB rows are already gone (deleted synchronously in the request);
-        this cleans up storage out of band since blob IO can be slow.
-        Best-effort per key — one failure doesn't stop the rest, and it never
-        crashes its caller.
-        """
-        deleted = 0
-        for key in storage_keys:
-            try:
-                await self.storage.delete(key)
-                deleted += 1
-            except Exception:  # noqa: BLE001 — best-effort; keep going on failures
-                logger.exception("Failed to delete blob %s", key)
-        logger.info("Deleted %d/%d blob(s)", deleted, len(storage_keys))

@@ -4,11 +4,11 @@ import { Play } from 'lucide-react';
 import {
   CHUNKING_METHODS,
   DEFAULT_CONFIG,
-  INDEX_TYPES,
   type ChunkingMethod,
-  type IndexType,
+  type KnowledgeBaseConfig,
 } from '../api/config';
 import { useKnowledgeBases } from '../api/knowledge';
+import { useModels } from '../api/models';
 import { useDatasets } from '../api/datasets';
 import { useCreateExperiment, type Metric } from '../api/experiments';
 import { errorMessage } from '../api/client';
@@ -84,9 +84,10 @@ export interface ExperimentValues {
   datasetId: string;
   knowledgeId: string;
   chunkingMethod: ChunkingMethod;
+  chunkingModelId: string;
   maxChunkSize: number;
   minChunkSize: number;
-  indexTypes: IndexType[];
+  indexTypes: KnowledgeBaseConfig['indexTypes'];
   topK: number;
   rerankOn: '' | 'parent' | 'child';
   rerankPool: number;
@@ -97,6 +98,7 @@ const VALUES: ExperimentValues = {
   datasetId: '',
   knowledgeId: '',
   chunkingMethod: DEFAULT_CONFIG.chunkingMethod,
+  chunkingModelId: '',
   maxChunkSize: DEFAULT_CONFIG.maxChunkSize,
   minChunkSize: DEFAULT_CONFIG.minChunkSize,
   indexTypes: DEFAULT_CONFIG.indexTypes,
@@ -117,10 +119,18 @@ export default function ExperimentForm({
 }) {
   const { data: bases } = useKnowledgeBases();
   const { data: datasets } = useDatasets();
+  const { data: embeddingModels } = useModels(1, 'bi-encoder', 100);
+  const { data: rerankModels } = useModels(1, 'cross-encoder', 100);
+  const { data: chatModels } = useModels(1, 'decoder', 100);
   const create = useCreateExperiment();
   const values = { ...VALUES, ...fixedValues };
   const fixed = (field: keyof ExperimentValues) => field in fixedValues;
   const [knowledgeId, setKnowledgeId] = useState(values.knowledgeId);
+  const [reranker, setReranker] = useState<KnowledgeBaseConfig['reranker']>(null);
+  const [queryExpansion, setQueryExpansion] =
+    useState<KnowledgeBaseConfig['queryExpansion']>(null);
+  const base = bases?.find((kb) => kb.id === knowledgeId);
+  const canRerank = knowledgeId ? !!base?.config.reranker : !!reranker;
 
   const ready = datasets?.items.filter((d) => d.status === 'ready') ?? [];
 
@@ -131,26 +141,32 @@ export default function ExperimentForm({
     const num = (field: keyof ExperimentValues) =>
       Number(form.get(field) ?? values[field as keyof ExperimentValues]);
 
-    const indexingConfig = knowledgeId
+    const kbConfig: KnowledgeBaseConfig | null = knowledgeId
       ? null
       : {
           chunkingMethod: (form.get('chunkingMethod') ?? values.chunkingMethod) as ChunkingMethod,
+          chunkingModelId: String(form.get('chunkingModelId') ?? values.chunkingModelId) || null,
           maxChunkSize: num('maxChunkSize'),
           minChunkSize: num('minChunkSize'),
-          indexTypes: (fixed('indexTypes')
+          indexTypes: fixed('indexTypes')
             ? values.indexTypes
-            : (form.getAll('indexTypes') as IndexType[])) as IndexType[],
+            : (form.getAll('indexTypes') as string[]).map((v) =>
+                v === 'bm25' ? { type: 'bm25' as const } : { type: 'vector' as const, modelId: v },
+              ),
+          reranker,
+          queryExpansion,
         };
-    const base = bases?.find((kb) => kb.id === knowledgeId);
-    const rerankOn = (form.get('rerankOn') ?? values.rerankOn) as ExperimentValues['rerankOn'];
+    const rerankOn = canRerank
+      ? ((form.get('rerankOn') ?? values.rerankOn) as ExperimentValues['rerankOn'])
+      : '';
 
     create
       .mutateAsync({
         datasetId: String(form.get('datasetId') ?? values.datasetId),
         knowledgeId: knowledgeId || null,
-        indexingConfig,
-        knowledgeConfig: {
-          indexTypes: indexingConfig?.indexTypes ?? base?.config.indexTypes ?? values.indexTypes,
+        kbConfig,
+        retrievalConfig: {
+          indexTypes: kbConfig?.indexTypes ?? base?.config.indexTypes ?? values.indexTypes,
           topK: num('topK'),
           rerankOn: rerankOn || null,
           rerankPool: num('rerankPool'),
@@ -240,6 +256,22 @@ export default function ExperimentForm({
                     </select>
                   </Field>
 
+                  <Field label="Chunking model" hint="needed for semantic chunking">
+                    <select
+                      name="chunkingModelId"
+                      className={lockable}
+                      defaultValue={values.chunkingModelId}
+                      disabled={fixed('chunkingModelId')}
+                    >
+                      <option value="">None</option>
+                      {embeddingModels?.items.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+
                   <div className="grid grid-cols-2 gap-4">
                     <Field label="Parent chunk size" hint="retrieved for context">
                       <Num
@@ -267,20 +299,84 @@ export default function ExperimentForm({
                     <span className="block text-sm font-medium text-slate-700">
                       Index types
                     </span>
-                    {INDEX_TYPES.map((type) => (
-                      <label key={type} className="flex items-center gap-2.5">
+                    {[
+                      { value: 'bm25', label: 'BM25' },
+                      ...(embeddingModels?.items.map((m) => ({ value: m.id, label: m.name })) ?? []),
+                    ].map(({ value, label }) => (
+                      <label key={value} className="flex items-center gap-2.5">
                         <input
                           type="checkbox"
                           name="indexTypes"
-                          value={type}
-                          defaultChecked={values.indexTypes.includes(type)}
+                          value={value}
+                          defaultChecked={values.indexTypes.some((t) =>
+                            t.type === 'bm25' ? value === 'bm25' : t.modelId === value,
+                          )}
                           disabled={fixed('indexTypes')}
                           className="accent-indigo-600"
                         />
-                        <span className="text-sm text-slate-600">{type}</span>
+                        <span className="text-sm text-slate-600">{label}</span>
                       </label>
                     ))}
                   </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <Field label="Reranker" hint="reorders results by relevance">
+                      <select
+                        className={lockable}
+                        value={reranker?.type ?? ''}
+                        onChange={(e) =>
+                          setReranker(
+                            e.target.value === 'cross-encoder' ||
+                              e.target.value === 'late-interaction'
+                              ? { type: e.target.value, modelId: '' }
+                              : null,
+                          )
+                        }
+                      >
+                        <option value="">None</option>
+                        <option value="cross-encoder">Cross-encoder</option>
+                        <option value="late-interaction">Late interaction</option>
+                      </select>
+                    </Field>
+                    <Field label="Reranker model">
+                      <select
+                        className={lockable}
+                        value={reranker?.modelId ?? ''}
+                        disabled={!reranker}
+                        required={!!reranker}
+                        onChange={(e) =>
+                          reranker && setReranker({ ...reranker, modelId: e.target.value })
+                        }
+                      >
+                        <option value="">Select a model</option>
+                        {(reranker?.type === 'late-interaction'
+                          ? embeddingModels?.items
+                          : rerankModels?.items
+                        )?.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.name}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                  </div>
+
+                  <Field label="Query expansion" hint="rewrites the query before searching">
+                    <select
+                      className={lockable}
+                      value={queryExpansion?.modelId ?? ''}
+                      onChange={(e) =>
+                        setQueryExpansion(e.target.value ? { modelId: e.target.value } : null)
+                      }
+                    >
+                      <option value="">Off</option>
+                      {chatModels?.items.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
                 </section>
               )}
 
@@ -301,12 +397,15 @@ export default function ExperimentForm({
                       disabled={fixed('topK')}
                     />
                   </Field>
-                  <Field label="Rerank on" hint="cross-encoder rescoring">
+                  <Field
+                    label="Rerank on"
+                    hint={canRerank ? 'cross-encoder rescoring' : 'base has no reranker'}
+                  >
                     <select
                       name="rerankOn"
                       className={lockable}
                       defaultValue={values.rerankOn}
-                      disabled={fixed('rerankOn')}
+                      disabled={fixed('rerankOn') || !canRerank}
                     >
                       <option value="">off</option>
                       <option value="parent">parent chunk</option>

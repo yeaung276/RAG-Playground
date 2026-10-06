@@ -19,6 +19,7 @@ export const CHUNKING_METHODS = ['fix-sized', 'recursive', 'semantic'] as const;
 export const knowledgeBaseConfigSchema = z
   .object({
     chunkingMethod: z.enum(CHUNKING_METHODS),
+    chunkingModelId: z.string().nullable(),
     maxChunkSize: z
       .number({ message: 'Enter a number' })
       .int('Must be a whole number')
@@ -27,11 +28,37 @@ export const knowledgeBaseConfigSchema = z
       .number({ message: 'Enter a number' })
       .int('Must be a whole number')
       .positive('Must be greater than 0'),
-    indexTypes: z.array(z.enum(INDEX_TYPES)).min(1, 'Pick at least one index type'),
+    indexTypes: z
+      .array(
+        z.discriminatedUnion('type', [
+          z.object({ type: z.literal('bm25') }),
+          z.object({ type: z.literal('vector'), modelId: z.string().min(1, 'Pick an embedding model') }),
+        ]),
+      )
+      .min(1, 'Add at least one index'),
+    reranker: z
+      .discriminatedUnion('type', [
+        z.object({
+          type: z.literal('cross-encoder'),
+          modelId: z.string().min(1, 'Pick a cross-encoder model'),
+        }),
+        z.object({
+          type: z.literal('late-interaction'),
+          modelId: z.string().min(1, 'Pick a late-interaction embedding model'),
+        }),
+      ])
+      .nullable(),
+    queryExpansion: z
+      .object({ modelId: z.string().min(1, 'Pick a chat model') })
+      .nullable(),
   })
   .refine((c) => c.minChunkSize < c.maxChunkSize, {
     path: ['minChunkSize'],
     message: 'Child chunk size must be smaller than parent chunk size',
+  })
+  .refine((c) => c.chunkingMethod !== 'semantic' || !!c.chunkingModelId, {
+    path: ['chunkingModelId'],
+    message: 'Semantic chunking needs an embedding model',
   });
 
 export type KnowledgeBaseConfig = z.infer<typeof knowledgeBaseConfigSchema>;
@@ -41,9 +68,12 @@ export type ChunkingMethod = (typeof CHUNKING_METHODS)[number];
 /** Server defaults, restated for pre-filling forms. */
 export const DEFAULT_CONFIG: KnowledgeBaseConfig = {
   chunkingMethod: 'semantic',
+  chunkingModelId: null,
   maxChunkSize: 1024,
   minChunkSize: 256,
-  indexTypes: ['bm25'],
+  indexTypes: [{ type: 'bm25' }],
+  reranker: null,
+  queryExpansion: null,
 };
 
 /** Per-field error messages ({} when the config is valid). */

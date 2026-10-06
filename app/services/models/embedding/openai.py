@@ -3,7 +3,7 @@ import httpx
 
 from aiolimiter import AsyncLimiter
 
-from app.services.retrieval.embedding.base import logger
+from app.services.models.embedding.base import logger
 from app.services.utils.http import http_retry
 from app.utils.env import require_env
 

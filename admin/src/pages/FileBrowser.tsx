@@ -13,7 +13,6 @@ import {
   Hourglass,
   RefreshCw,
   RotateCcw,
-  Settings2,
   Trash2,
   Upload,
 } from 'lucide-react';
@@ -151,17 +150,7 @@ export default function FileBrowser() {
 
   return (
     <div className="flex h-screen flex-col bg-slate-50 text-slate-900">
-      <Header
-        right={
-          <button
-            onClick={() => navigate(`/knowledge/${kbId}/config`)}
-            title="Configuration"
-            className="flex items-center gap-1 rounded-md px-2 py-1 text-sm text-slate-500 hover:bg-slate-100"
-          >
-            <Settings2 size={16} /> Config
-          </button>
-        }
-      >
+      <Header>
         <button
           onClick={() => navigate('/knowledge')}
           className="flex items-center gap-1 rounded-md px-2 py-1 text-sm text-slate-500 hover:bg-slate-100"

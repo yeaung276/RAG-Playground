@@ -1,11 +1,7 @@
 from fastapi import APIRouter, Depends
 
 from app.dependencies.services import get_kb_service
-from app.schemas.knowledge import (
-    KnowledgeBaseCreate,
-    KnowledgeBaseRead,
-    KnowledgeBaseUpdate,
-)
+from app.schemas.knowledge import KnowledgeBaseCreate, KnowledgeBaseRead
 from app.services.knowledge.kb_service import KnowledgeBaseService
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge-bases"])
@@ -17,15 +13,6 @@ async def create_base(
     svc: KnowledgeBaseService = Depends(get_kb_service),
 ):
     return await svc.create(payload.name, payload.config)
-
-
-@router.patch("/{kb_id}", response_model=KnowledgeBaseRead)
-async def update_base(
-    kb_id: str,
-    payload: KnowledgeBaseUpdate,
-    svc: KnowledgeBaseService = Depends(get_kb_service),
-):
-    return await svc.update_config(kb_id, payload.config)
 
 
 @router.get("", response_model=list[KnowledgeBaseRead])

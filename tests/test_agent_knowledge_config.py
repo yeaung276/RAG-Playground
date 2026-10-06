@@ -5,8 +5,11 @@ from app.schemas.agent import AgentCreate, AgentUpdate, KnowledgeConfig
 from app.services.agents.agent_service import AgentService
 
 
+HYBRID = [{"type": "bm25"}, {"type": "vector", "modelId": "embed-1"}]
+
+
 def config(**kwargs) -> KnowledgeConfig:
-    return KnowledgeConfig(**{"indexTypes": ["bm25"], **kwargs})
+    return KnowledgeConfig(**{"indexTypes": [{"type": "bm25"}], **kwargs})
 
 
 async def test_patch_stores_camel_case_keys(db_sessionmaker):
@@ -15,19 +18,24 @@ async def test_patch_stores_camel_case_keys(db_sessionmaker):
         agent = await service.create(AgentCreate(name="router"))
         read = await service.update(
             agent.id,
-            AgentUpdate(knowledgeConfig=config(topK=8, rerankOn="child", rerankPool=20)),
+            AgentUpdate(
+                knowledgeConfig=config(
+                    indexTypes=HYBRID, topK=8, rerankOn="child", rerankPool=20
+                )
+            ),
         )
         stored = (await db.get(Agent, agent.id)).knowledge_config
 
     # the column holds the wire shape, like `handoff` does
     assert stored == {
-        "indexTypes": ["bm25"],
+        "indexTypes": HYBRID,
         "topK": 8,
         "rerankOn": "child",
         "rerankPool": 20,
         "prefetchLimit": None,
     }
     assert (read.knowledge_config.top_k, read.knowledge_config.rerank_on) == (8, "child")
+    assert [i.vector_name for i in read.knowledge_config.index_types] == ["bm25", "embed-1"]
 
 
 async def test_patching_null_clears_it(db_sessionmaker):
@@ -51,9 +59,14 @@ async def test_patching_other_fields_leaves_it_alone(db_sessionmaker):
         assert read.knowledge_config.top_k == 3
 
 
-async def test_unknown_index_type_is_rejected():
+@pytest.mark.parametrize(
+    "index",
+    [{"type": "not-an-index"}, {"type": "vector"}, "bm25"],
+    ids=["unknown-type", "vector-without-model", "legacy-string"],
+)
+async def test_invalid_index_type_is_rejected(index):
     with pytest.raises(ValueError):
-        KnowledgeConfig(indexTypes=["not-an-index"])
+        KnowledgeConfig(indexTypes=[index])
 
 
 async def test_at_least_one_index_type_is_required():

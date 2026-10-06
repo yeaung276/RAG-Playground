@@ -15,8 +15,8 @@ from app.schemas.model import (
     ModelUpdate,
 )
 from app.services.errors import ConflictError, NotFoundError
-from app.services.retrieval.embedding import Embedder, OpenAIEmbedder, TEIEmbedder
-from app.services.retrieval.rerank import Reranker, TEIReranker
+from app.services.models.embedding import Embedder, OpenAIEmbedder, TEIEmbedder
+from app.services.models.rerank import Reranker, TEIReranker
 from app.utils.crypto import decrypt_secret, encrypt_secret
 
 logger = get_logger(__name__)

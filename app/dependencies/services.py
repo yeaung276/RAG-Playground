@@ -14,8 +14,10 @@ from app.services.models.model_service import ModelService
 from app.services.admin.admin_session_service import AdminSessionService
 from app.services.admin.priority_service import PriorityService
 from app.services.dataset.dataset_service import DatasetService
-from app.services.dataset.experimentation_service import ExperimentationService
+from app.services.dataset.evaluation_service import EvaluationService
+from app.services.dataset.experiment_service import ExperimentationService
 from app.backgrounds.dataset_processor import DatasetProcessor
+from app.backgrounds.evaluation_processor import EvaluationProcessor
 from app.backgrounds.files_processor import FileProcessor
 from app.db.qdrant import qdrant
 from app.db.langgraph import LGManager
@@ -67,14 +69,15 @@ def get_message_service(
     return MessageService(db, publisher)
 
 
-def get_kb_service(
-    session: AsyncSession = Depends(get_session),
-) -> KnowledgeBaseService:
-    return KnowledgeBaseService(session=session, qdrant=qdrant)
-
-
 def get_model_service(session: AsyncSession = Depends(get_session)) -> ModelService:
     return ModelService(session)
+
+
+def get_kb_service(
+    session: AsyncSession = Depends(get_session),
+    model_service: ModelService = Depends(get_model_service),
+) -> KnowledgeBaseService:
+    return KnowledgeBaseService(session=session, qdrant=qdrant, model_service=model_service)
 
 
 def get_agent_service(session: AsyncSession = Depends(get_session)) -> AgentService:
@@ -122,6 +125,16 @@ def get_experimentation_service(
 
 def get_dataset_processor() -> DatasetProcessor:
     return DatasetProcessor(get_storage(), async_session_maker)
+
+
+def get_evaluation_processor() -> EvaluationProcessor:
+    return EvaluationProcessor(
+        get_storage(),
+        IndexingService(async_session_maker, qdrant),
+        get_retrieval_service(),
+        EvaluationService(),
+        async_session_maker,
+    )
 
 
 def get_extraction_service() -> ExtractionService:

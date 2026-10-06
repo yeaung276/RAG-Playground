@@ -13,6 +13,7 @@ import ExperimentForm from './ExperimentForm';
 import { errorMessage } from '../api/client';
 import { useDatasets } from '../api/datasets';
 import { useExperiments, type Experiment } from '../api/experiments';
+import { useModels } from '../api/models';
 import { formatRelative } from '../utils/format';
 
 const shell = 'rounded-2xl border border-slate-200 bg-white px-5 py-10 text-center';
@@ -105,9 +106,16 @@ function Row({
   dataset: string;
   onOpen?: (id: string) => void;
 }) {
-  const { status, knowledgeConfig: config } = experiment;
+  const { status, retrievalConfig: config } = experiment;
+  const { data: embeddingModels } = useModels(1, 'bi-encoder', 100);
   const setup = [
-    config.indexTypes.join(' + '),
+    config.indexTypes
+      .map((t) =>
+        t.type === 'bm25'
+          ? 'BM25'
+          : (embeddingModels?.items.find((m) => m.id === t.modelId)?.name ?? t.modelId),
+      )
+      .join(' + '),
     `top ${config.topK ?? '—'}`,
     config.rerankOn ? `rerank ${config.rerankOn}` : 'no rerank',
     formatRelative(new Date(experiment.createdAt).getTime()),
@@ -129,17 +137,22 @@ function Row({
     );
   }
 
-  if (status !== 'ready') {
+  if (status !== 'success') {
+    const [stage, label] = {
+      pending: ['Queued', 'Queued'],
+      importing: ['Importing files', 'Importing'],
+      running: ['Scoring', 'Running'],
+    }[status];
     return (
       <li className="flex items-center gap-4 px-5 py-4">
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-slate-900">{dataset}</p>
           <p className="mt-0.5 truncate text-xs text-slate-400">
-            {status === 'pending' ? 'Queued · indexing' : 'Scoring'} · {setup}
+            {stage} · {setup}
           </p>
         </div>
         <span className={`${pill} bg-indigo-50 text-indigo-700`}>
-          <Clock3 size={12} /> {status === 'pending' ? 'Queued' : 'Running'}
+          <Clock3 size={12} /> {label}
         </span>
       </li>
     );

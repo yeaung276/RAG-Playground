@@ -1,6 +1,10 @@
 import { useKnowledgeBases } from '../api/knowledge';
-import type { IndexType } from '../api/config';
+import { useModels } from '../api/models';
 import type { Agent, KnowledgeConfig } from '../types/agent';
+
+type IndexSpec = KnowledgeConfig['indexTypes'][number];
+
+const indexKey = (t: IndexSpec) => (t.type === 'bm25' ? 'bm25' : t.modelId);
 
 interface Props {
   agent: Agent;
@@ -18,6 +22,7 @@ const EMPTY: KnowledgeConfig = {
 
 export default function AgentKnowledge({ agent, onEdit }: Props) {
   const { data: bases } = useKnowledgeBases();
+  const { data: embeddingModels } = useModels(1, 'bi-encoder', 100);
   const base = bases?.find((kb) => kb.id === agent.knowledgeId);
   const config = agent.knowledgeConfig ?? EMPTY;
 
@@ -25,12 +30,17 @@ export default function AgentKnowledge({ agent, onEdit }: Props) {
     onEdit({ knowledgeConfig: { ...config, ...patch } });
   }
 
-  function toggleIndex(type: IndexType, on: boolean) {
+  function toggleIndex(index: IndexSpec, on: boolean) {
     set({
       indexTypes: on
-        ? [...config.indexTypes, type]
-        : config.indexTypes.filter((t) => t !== type),
+        ? [...config.indexTypes, index]
+        : config.indexTypes.filter((t) => indexKey(t) !== indexKey(index)),
     });
+  }
+
+  function indexLabel(index: IndexSpec) {
+    if (index.type === 'bm25') return 'BM25';
+    return embeddingModels?.items.find((m) => m.id === index.modelId)?.name ?? index.modelId;
   }
 
   return (
@@ -79,14 +89,14 @@ export default function AgentKnowledge({ agent, onEdit }: Props) {
               <div className="flex w-64 shrink-0 flex-col gap-1.5">
                 {base?.config.indexTypes.length ? (
                   base.config.indexTypes.map((t) => (
-                    <label key={t} className="flex items-center gap-2 text-sm text-slate-700">
+                    <label key={indexKey(t)} className="flex items-center gap-2 text-sm text-slate-700">
                       <input
                         type="checkbox"
-                        checked={config.indexTypes.includes(t)}
+                        checked={config.indexTypes.some((c) => indexKey(c) === indexKey(t))}
                         onChange={(e) => toggleIndex(t, e.target.checked)}
                         className="accent-indigo-600"
                       />
-                      {t}
+                      {indexLabel(t)}
                     </label>
                   ))
                 ) : (
