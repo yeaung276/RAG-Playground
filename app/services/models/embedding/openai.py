@@ -28,7 +28,7 @@ class OpenAIEmbedder:
 
     @http_retry(logger)
     async def embed(self, texts: list[str]) -> list[list[float]]:
-        with _limiter:
+        async with _limiter:
             r = await self.client.post(
                 f"{self.base_url}/embeddings",
                 json={"model": self.model, "input": texts},
