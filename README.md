@@ -221,8 +221,7 @@ change (`vite build --watch`), and runs the API with `uvicorn --reload`. Open
 ### 6. First steps
 
 1. **Models** — register a chat model (decoder) and an embedding model (bi-encoder).
-2. **Knowledge** — create a base and upload a few documents. Sample files live in
-   [`datasets/`](datasets/).
+2. **Knowledge** — create a base and upload a few documents.
 3. **Agents** — add an agent, pick its model, attach the knowledge base, and press
    **Test**.
 4. **Evaluation** — generate a dataset from a zip of documents, then run an experiment.
@@ -574,7 +573,7 @@ Run as `uv run python main.py <command>`; add `-h` to any command for its option
 │       └── widget/         Embeddable chat widget (→ widget.js)
 ├── migrations/             Alembic migrations
 ├── tests/                  Backend tests (pytest)
-├── datasets/               Sample documents
+├── datasets/thai-treasury/ Thai treasury dataset — extracted documents (texts/) and question sets (eval/)
 ├── Dockerfile
 ├── docker-compose.yaml
 └── main.py                 CLI entry point
