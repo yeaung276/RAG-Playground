@@ -2,13 +2,6 @@ import argparse
 import os
 import subprocess
 
-from commands import (
-    create_admin,
-    evaluate_llm,
-    evaluate_rag,
-    extract_with_ocr,
-)
-
 
 def run_dev(args):
     from dotenv import dotenv_values
@@ -60,25 +53,6 @@ def build_parser():
     migrate.add_argument("alembic_args", nargs=argparse.REMAINDER,
                          help="args forwarded to alembic, e.g. upgrade head")
     migrate.set_defaults(func=run_migrate)
-
-    extract = sub.add_parser("extract", help="OCR-extract PDFs in a folder to JSON")
-    extract_with_ocr.add_arguments(extract)
-    extract.set_defaults(func=extract_with_ocr.run)
-
-    createadmin = sub.add_parser("createadmin", help="create an admin console user")
-    create_admin.add_arguments(createadmin)
-    createadmin.set_defaults(func=create_admin.run)
-
-    evaluate = sub.add_parser("evaluate", help="run evaluation scripts")
-    evaluate_sub = evaluate.add_subparsers(dest="target", required=True)
-
-    llm = evaluate_sub.add_parser("llm", help="llm serving capacity report")
-    evaluate_llm.add_arguments(llm)
-    llm.set_defaults(func=evaluate_llm.run)
-
-    rag = evaluate_sub.add_parser("rag", help="rag retrieval metrics report")
-    evaluate_rag.add_arguments(rag)
-    rag.set_defaults(func=evaluate_rag.run)
 
     return parser
 
