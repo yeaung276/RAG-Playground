@@ -51,6 +51,7 @@ export interface KnowledgeConfig {
   rerankOn: 'parent' | 'child' | null;
   rerankPool: number | null;
   prefetchLimit: number | null;
+  hyde: boolean;
 }
 
 export interface HandoffTarget {

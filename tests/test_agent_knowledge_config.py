@@ -33,6 +33,7 @@ async def test_patch_stores_camel_case_keys(db_sessionmaker):
         "rerankOn": "child",
         "rerankPool": 20,
         "prefetchLimit": None,
+        "hyde": False,
     }
     assert (read.knowledge_config.top_k, read.knowledge_config.rerank_on) == (8, "child")
     assert [i.vector_name for i in read.knowledge_config.index_types] == ["bm25", "embed-1"]

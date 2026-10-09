@@ -1,5 +1,7 @@
 from typing import Literal
 
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import HumanMessage, SystemMessage
 from qdrant_client import AsyncQdrantClient, models
 from sqlalchemy import select
 
@@ -13,6 +15,11 @@ from app.services.models.rerank import Reranker
 from app.services.retrieval.document import IndexSpec, KbConfig, Retrieved
 
 logger = get_logger(__name__)
+
+HYDE_PROMPT = (
+    "Write a short passage that answers the user's question, in the style of a "
+    "document that would contain the answer. Reply with the passage only."
+)
 
 
 class RetrievalService:
@@ -30,18 +37,27 @@ class RetrievalService:
         rerank_on: Literal["parent", "child"] | None = None,
         rerank_pool: int | None = None,
         prefetch_limit: int | None = None,
+        hyde: bool = False,
     ) -> list[Retrieved]:
         """Embed the query, match the nearest child embeddings, and resolve each
         to its parent chunk (small-to-big). Returns up to top_k distinct parents,
         best-scoring first."""
-        embedders, reranker = await self.resolve_models(
-            kb_id, index_types=index_types, rerank_on=rerank_on
-        )
+        embedders, reranker, hyde_llm = await self.resolve_models(kb_id)
+        if not self._is_index_supported(embedders, index_types):
+            raise ConflictError(
+                f"One of the index types is not supported by knowledge base {kb_id}"
+            )
+        if rerank_on and reranker is None:
+            raise ConflictError(f"Knowledge base {kb_id} has no reranker configured")
+        if hyde and hyde_llm is None:
+            raise ConflictError(f"Knowledge base {kb_id} has no HyDE model configured")
+
         return await self.retrieve_with(
             kb_id,
             query,
-            embedders=embedders,
-            reranker=reranker,
+            embedders={index.vector_name: embedders[index.vector_name] for index in index_types},
+            reranker=reranker if rerank_on else None,
+            hyde=hyde_llm if hyde else None,
             top_k=top_k,
             rerank_on=rerank_on,
             rerank_pool=rerank_pool,
@@ -49,30 +65,19 @@ class RetrievalService:
         )
 
     async def resolve_models(
-        self,
-        kb_id: str,
-        *,
-        index_types: list[IndexSpec],
-        rerank_on: Literal["parent", "child"] | None = None,
-    ) -> tuple[dict[str, Embedder], Reranker | None]:
-        """Validate the request against the KB's config and build its embedders,
-        plus the reranker when rerank_on is set."""
+        self, kb_id: str
+    ) -> tuple[dict[str, Embedder], Reranker | None, BaseChatModel | None]:
+        """Build the KB's configured embedders, reranker and HyDE model."""
         async with self.session_maker() as session:
             kb = await session.get(KnowledgeBase, kb_id)
             if kb is None:
                 raise NotFoundError(f"Knowledge base {kb_id} not found")
 
         config = KbConfig(**(kb.config or {}))
-        if not self._is_index_supported(config, index_types):
-            raise ConflictError(
-                f"One of the index types is not supported by knowledge base {kb_id}"
-            )
-        if rerank_on and config.reranker is None:
-            raise ConflictError(f"Knowledge base {kb_id} has no reranker configured")
-
-        embedders = await self._get_embedding_model_from_config(index_types)
-        reranker = await self._get_reranker_from_config(kb_id, config) if rerank_on else None
-        return embedders, reranker
+        embedders = await self._get_embedding_model_from_config(config.index_types)
+        reranker = await self._get_reranker_from_config(kb_id, config) if config.reranker else None
+        hyde_llm = await self._get_hyde_from_config(config) if config.hyde else None
+        return embedders, reranker, hyde_llm
 
     async def retrieve_with(
         self,
@@ -81,6 +86,7 @@ class RetrievalService:
         *,
         embedders: dict[str, Embedder],
         reranker: Reranker | None = None,
+        hyde: BaseChatModel | None = None,
         top_k: int = 5,
         rerank_on: Literal["parent", "child"] | None = None,
         rerank_pool: int | None = None,
@@ -92,8 +98,9 @@ class RetrievalService:
         rerank_pool = rerank_pool or top_k
         prefetch_limit = prefetch_limit or rerank_pool * 2
 
+        search_text = await self._hypothesize(query, hyde) if hyde else query
         hits = await self._scan_points(
-            kb_id, query, embedders, prefetch_limit, limit=rerank_pool
+            kb_id, search_text, embedders, prefetch_limit, limit=rerank_pool
         )
         if not hits:
             return []
@@ -140,10 +147,23 @@ class RetrievalService:
             case _:
                 raise ValueError(f"Unsupported reranker: {config.reranker.type!r}")
 
+    async def _get_hyde_from_config(self, config: KbConfig) -> BaseChatModel:
+        """Resolve the KB's HyDE model to its chat model."""
+        async with self.session_maker() as session:
+            llm = await ModelService(session).resolve_model(config.hyde.model_id)
+        if not isinstance(llm, BaseChatModel):
+            raise ConflictError("HyDE needs a decoder model")
+        return llm
+
+    async def _hypothesize(self, query: str, llm: BaseChatModel) -> str:
+        """Write a hypothetical answer passage to search with in place of the query."""
+        reply = await llm.ainvoke([SystemMessage(HYDE_PROMPT), HumanMessage(query)])
+        return reply.text
+
     def _is_index_supported(
-        self, config: KbConfig, index_types: list[IndexSpec]
+        self, embedders: dict[str, Embedder], index_types: list[IndexSpec]
     ) -> bool:
-        available = {index.vector_name for index in config.index_types}
+        available = embedders.keys()
         if {index.vector_name for index in index_types} - available:
             return False
         return True

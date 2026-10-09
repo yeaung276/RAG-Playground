@@ -17,7 +17,7 @@ DEFAULT_CONFIG = {
     "minChunkSize": 256,
     "indexTypes": [{"type": "bm25"}],
     "reranker": None,
-    "queryExpansion": None,
+    "hyde": None,
 }
 
 
@@ -56,7 +56,7 @@ def _fe_config(embed_id: str, **overrides) -> dict:
         "minChunkSize": 400,
         "indexTypes": [{"type": "bm25"}, {"type": "vector", "modelId": embed_id}],
         "reranker": {"type": "cross-encoder", "modelId": "rerank-1"},
-        "queryExpansion": {"modelId": "chat-1"},
+        "hyde": {"modelId": "chat-1"},
         **overrides,
     }
 
@@ -131,11 +131,11 @@ async def test_create_with_an_unregistered_embedding_model_returns_404(client):
         {"indexTypes": [{"type": "vector"}]},
         {"chunkingMethod": "semantic", "chunkingModelId": None},
         {"reranker": {"type": "cross-encoder"}},
-        {"queryExpansion": {"modelId": ""}},
+        {"hyde": {"modelId": ""}},
     ],
     ids=["child-not-smaller", "no-index", "unknown-index", "legacy-index-string",
          "vector-without-model", "semantic-without-model", "reranker-without-model",
-         "query-expansion-without-model"],
+         "hyde-without-model"],
 )
 async def test_create_rejects_invalid_config(client, config):
     r = await client.post("/api/admin/knowledge", json={"name": "Bad", "config": config})

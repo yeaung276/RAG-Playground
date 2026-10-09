@@ -128,8 +128,7 @@ export default function ExperimentForm({
   const fixed = (field: keyof ExperimentValues) => field in fixedValues;
   const [knowledgeId, setKnowledgeId] = useState(values.knowledgeId);
   const [reranker, setReranker] = useState<KnowledgeBaseConfig['reranker']>(null);
-  const [queryExpansion, setQueryExpansion] =
-    useState<KnowledgeBaseConfig['queryExpansion']>(null);
+  const [hyde, setHyde] = useState<KnowledgeBaseConfig['hyde']>(null);
   const base = bases?.find((kb) => kb.id === knowledgeId);
   const canRerank = knowledgeId ? !!base?.config.reranker : !!reranker;
 
@@ -155,7 +154,7 @@ export default function ExperimentForm({
                 v === 'bm25' ? { type: 'bm25' as const } : { type: 'vector' as const, modelId: v },
               ),
           reranker,
-          queryExpansion,
+          hyde,
         };
     const rerankOn = canRerank
       ? ((form.get('rerankOn') ?? values.rerankOn) as ExperimentValues['rerankOn'])
@@ -362,13 +361,11 @@ export default function ExperimentForm({
                     </Field>
                   </div>
 
-                  <Field label="Query expansion" hint="rewrites the query before searching">
+                  <Field label="HyDE" hint="searches with a hypothetical answer generated from the query">
                     <select
                       className={lockable}
-                      value={queryExpansion?.modelId ?? ''}
-                      onChange={(e) =>
-                        setQueryExpansion(e.target.value ? { modelId: e.target.value } : null)
-                      }
+                      value={hyde?.modelId ?? ''}
+                      onChange={(e) => setHyde(e.target.value ? { modelId: e.target.value } : null)}
                     >
                       <option value="">Off</option>
                       {chatModels?.items.map((m) => (

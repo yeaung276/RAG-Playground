@@ -18,6 +18,7 @@ const EMPTY: KnowledgeConfig = {
   rerankOn: null,
   rerankPool: null,
   prefetchLimit: null,
+  hyde: false,
 };
 
 export default function AgentKnowledge({ agent, onEdit }: Props) {
@@ -105,6 +106,22 @@ export default function AgentKnowledge({ agent, onEdit }: Props) {
                   </span>
                 )}
               </div>
+            </Row>
+
+            <Row
+              label="HyDE"
+              hint="Search with a hypothetical answer generated from the query. Needs a HyDE model on this base."
+            >
+              <label className="flex w-64 shrink-0 items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={config.hyde}
+                  disabled={!base?.config.hyde}
+                  onChange={(e) => set({ hyde: e.target.checked })}
+                  className="accent-indigo-600"
+                />
+                Enabled
+              </label>
             </Row>
 
             <Row label="Top K" hint="How many parent chunks are handed to the model.">

@@ -100,7 +100,7 @@ class LateInteractionReranker(CamelModel):
         return "late-interaction"
 
 
-class QueryExpansion(CamelModel):
+class Hyde(CamelModel):
     model_id: str = Field(min_length=1)
 
 
@@ -124,7 +124,7 @@ class KbConfig(CamelModel):
 
     # retrieval config
     reranker: RerankerSpec | None = None
-    query_expansion: QueryExpansion | None = None
+    hyde: Hyde | None = None
 
     @model_validator(mode="after")
     def _child_smaller_than_parent(self) -> "KbConfig":

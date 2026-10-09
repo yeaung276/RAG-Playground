@@ -81,7 +81,7 @@ export default function ExperimentDetail() {
         ['Child chunk size', String(kb.minChunkSize)],
         ['Index types', kb.indexTypes.map((t) => indexTypeName(t, modelName)).join(' + ')],
         ['Reranker', kb.reranker ? `${modelName(kb.reranker.modelId)} · ${kb.reranker.type}` : 'off'],
-        ['Query expansion', kb.queryExpansion ? modelName(kb.queryExpansion.modelId) : 'off'],
+        ['HyDE', kb.hyde ? modelName(kb.hyde.modelId) : 'off'],
       ]
     : [];
 

@@ -305,9 +305,9 @@ export default function NewKbModal({ open, onOpenChange, onSubmit }: Props) {
                   }}
                 </form.Field>
 
-                <form.Field name="queryExpansion">
+                <form.Field name="hyde">
                   {(field) => (
-                    <Row title="Query expansion" hint="Rewrites the query before searching.">
+                    <Row title="HyDE" hint="Searches with a hypothetical answer generated from the query.">
                       <select
                         value={field.state.value?.modelId ?? ''}
                         onChange={(e) =>

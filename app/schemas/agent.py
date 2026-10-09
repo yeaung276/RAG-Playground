@@ -105,6 +105,7 @@ class KnowledgeConfig(CamelModel):
     rerank_on: Literal["parent", "child"] | None = None
     rerank_pool: int | None = Field(default=None, gt=0)
     prefetch_limit: int | None = Field(default=None, gt=0)
+    hyde: bool = False
 
 
 class AgentCreate(CamelModel):

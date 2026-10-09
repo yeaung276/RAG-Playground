@@ -196,9 +196,9 @@ async def test_reordering_indexes_is_not_a_change(db_sessionmaker, qdrant, embed
         {"chunking_method": "fix-sized"},
         {"chunking_method": "semantic", "chunking_model_id": "CHUNK"},
         {"reranker": {"type": "cross-encoder", "modelId": "r1"}},
-        {"query_expansion": {"modelId": "chat-1"}},
+        {"hyde": {"modelId": "chat-1"}},
     ],
-    ids=["chunk-size", "chunking-method", "chunking-model", "reranker", "query-expansion"],
+    ids=["chunk-size", "chunking-method", "chunking-model", "reranker", "hyde"],
 )
 async def test_non_layout_changes_leave_existing_points_alone(
     db_sessionmaker, qdrant, embed_ids, changes

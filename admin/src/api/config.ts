@@ -48,7 +48,7 @@ export const knowledgeBaseConfigSchema = z
         }),
       ])
       .nullable(),
-    queryExpansion: z
+    hyde: z
       .object({ modelId: z.string().min(1, 'Pick a chat model') })
       .nullable(),
   })
@@ -81,7 +81,7 @@ export const DEFAULT_CONFIG: KnowledgeBaseConfig = {
   minChunkSize: 256,
   indexTypes: [{ type: 'bm25' }],
   reranker: null,
-  queryExpansion: null,
+  hyde: null,
 };
 
 /** Per-field error messages ({} when the config is valid). */

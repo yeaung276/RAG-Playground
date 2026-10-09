@@ -1,6 +1,7 @@
 import pytest
 import pytest_asyncio
 from fastapi import HTTPException
+from langchain_core.language_models.fake_chat_models import FakeListChatModel
 from qdrant_client import models
 from sqlalchemy import select
 
@@ -16,6 +17,7 @@ from app.services.retrieval.document import (
     Bm25Index,
     CrossEncoderReranker,
     Document,
+    Hyde,
     KbConfig,
     LateInteractionReranker,
     Page,
@@ -110,6 +112,7 @@ async def ids(db_sessionmaker) -> dict[str, str]:
                 ("chunker", "bi-encoder"),
                 ("reranker", "cross-encoder"),
                 ("late", "late-interaction"),
+                ("chat", "decoder"),
             ]
         ]
         session.add_all(rows)
@@ -456,6 +459,32 @@ async def test_reranker_model_that_is_gone_is_a_404(db_sessionmaker, qdrant):
     assert exc.value.status_code == 404
 
 
+# ── HyDE: search with a hypothetical answer ──────────────────────────────────
+
+async def test_hyde_searches_with_the_hypothetical_answer(
+    db_sessionmaker, qdrant, ids, monkeypatch
+):
+    """bm25 finds nothing for "seabirds"; the hypothetical answer names pelicans."""
+    monkeypatch.setattr(
+        model_service_module, "init_chat_model",
+        lambda *_args, **_kwargs: FakeListChatModel(responses=["pelicans"]),
+    )
+    kb_id, node_id, config = await _setup(
+        db_sessionmaker, qdrant, Bm25Index(), hyde=Hyde(model_id=ids["chat"])
+    )
+    await _index(
+        db_sessionmaker, qdrant, kb_id, node_id, config,
+        [("a.md", "pelicans share the cliffs"), ("b.md", "otters float on kelp")],
+    )
+    service = RetrievalService(db_sessionmaker, qdrant)
+
+    plain = await service.retrieve(kb_id, "seabirds", index_types=[Bm25Index()])
+    hits = await service.retrieve(kb_id, "seabirds", index_types=[Bm25Index()], hyde=True)
+
+    assert plain == []
+    assert [h.chunk.content for h in hits] == ["pelicans share the cliffs"]
+
+
 # ── late interaction: stored multivectors rerank the pool ────────────────────
 
 async def _late_kb(db_sessionmaker, qdrant, ids, docs):
@@ -556,9 +585,7 @@ async def test_late_interaction_rank_answers_in_input_order(db_sessionmaker, qdr
     kb_id, _ = await _late_rerank_kb(db_sessionmaker, qdrant, ids)
     async with db_sessionmaker() as session:
         parent = {r.content: r.id for r in (await session.execute(select(ChunkRow))).scalars()}
-    _, reranker = await RetrievalService(db_sessionmaker, qdrant).resolve_models(
-        kb_id, index_types=[Bm25Index()], rerank_on="parent"
-    )
+    _, reranker, _ = await RetrievalService(db_sessionmaker, qdrant).resolve_models(kb_id)
 
     scores = await reranker.rank(
         "coins winner",
@@ -614,9 +641,7 @@ async def test_models_resolved_once_serve_every_document_and_query(
     indexer = IndexingService(db_sessionmaker, qdrant)
     service = RetrievalService(db_sessionmaker, qdrant)
     chunker, index_embedders = await indexer.resolve_models(config)
-    embedders, reranker = await service.resolve_models(
-        kb_id, index_types=[VectorIndex(model_id=a)], rerank_on="parent"
-    )
+    embedders, reranker, _ = await service.resolve_models(kb_id)
 
     async def no_resolve(*_args, **_kwargs):
         raise AssertionError("a model was built again")

@@ -69,10 +69,8 @@ class EvaluationProcessor:
         dataset = await self._get_dataset(experiment.dataset_id)
         pairs = json.loads((await self.storage.load(dataset.result_key)).read())
         config = KnowledgeConfig(**experiment.snapshot_retrieval_config)
-        embedders, reranker = await self.retrieval.resolve_models(
-            experiment.knowledge_id, index_types=config.index_types, rerank_on=config.rerank_on
-        )
-        options = config.model_dump(exclude_none=True, exclude={"index_types"})
+        embedders, reranker, hyde = await self.retrieval.resolve_models(experiment.knowledge_id)
+        options = config.model_dump(exclude_none=True, exclude={"index_types", "hyde"})
         metrics = [Metric(m) for m in experiment.metrics]
 
         scored = []
@@ -82,6 +80,7 @@ class EvaluationProcessor:
                 pair["question"],
                 embedders=embedders,
                 reranker=reranker,
+                hyde=hyde,
                 **options,
             )
             scores, status, highlights = self.evaluation.score(
