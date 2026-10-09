@@ -15,7 +15,7 @@ const appBase = `${window.location.origin}${window.location.pathname.replace(
 )}`.replace(/\/$/, '');
 const widgetUrl = `${appBase}/widget.js`;
 
-const SNIPPET = `<script type="module" src="${widgetUrl}"></script>
+export const SNIPPET = `<script type="module" src="${widgetUrl}"></script>
 <script type="module">
   widgets.createChat({
     backendUrl: '${appBase}',

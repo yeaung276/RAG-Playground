@@ -16,6 +16,7 @@ import ControlChat from './pages/ControlChat';
 import FileBrowser from './pages/FileBrowser';
 import Agents from './pages/Agents';
 import Docs from './docs/Docs';
+import Landing from './docs/Landing';
 import Models from './pages/Models';
 import Evaluation from './pages/Evaluation';
 import DatasetDetail from './pages/DatasetDetail';
@@ -45,9 +46,9 @@ createRoot(document.getElementById('root')!).render(
     <QueryClientProvider client={queryClient}>
       <HashRouter>
         <Routes>
+          <Route path="/" element={<Landing />} />
           <Route path="/login" element={<Login />} />
           <Route element={<RequireAuth />}>
-            <Route path="/" element={<Navigate to="/control" replace />} />
             <Route path="/docs" element={<Navigate to="/docs/widget" replace />} />
             <Route path="/docs/:section" element={<Docs />} />
             <Route element={<Layout />}>

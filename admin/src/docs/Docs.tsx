@@ -39,10 +39,10 @@ export default function Docs() {
         >
           <ChevronLeft size={13} /> Console
         </Link>
-        <div className="mt-3 flex items-center gap-2 px-2">
+        <Link to="/" className="mt-3 flex items-center gap-2 px-2">
           <FileText size={17} className="text-indigo-600" />
           <span className="text-base font-semibold tracking-tight">Docs</span>
-        </div>
+        </Link>
 
         <nav className="mt-6 flex flex-col gap-4">
           {GROUPS.map((group) => (
