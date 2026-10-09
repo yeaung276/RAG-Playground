@@ -5,6 +5,7 @@ from itertools import batched
 from qdrant_client import AsyncQdrantClient, models
 
 from app.logger import get_logger
+from app.metrics import indexed_chunks_total, qdrant_upsert_duration_seconds
 from app.models.chunk import Chunk as ChunkRow
 from app.services.retrieval.chunking import (
     Chunker,
@@ -131,8 +132,11 @@ class IndexingService:
                 for parent, embedded in zip(corpus.parents, parent_vectors)
             ]
             for batch in batched(points, UPSERT_BATCH):
-                await self.qdrant.upsert(kb_id, points=list(batch))
+                with qdrant_upsert_duration_seconds.time():
+                    await self.qdrant.upsert(kb_id, points=list(batch))
             await session.commit()
+        indexed_chunks_total.labels(level="parent").inc(len(corpus.parents))
+        indexed_chunks_total.labels(level="child").inc(len(corpus.children))
 
         logger.info(
             "Indexed node %s: %d parent(s), %d child embedding(s)",

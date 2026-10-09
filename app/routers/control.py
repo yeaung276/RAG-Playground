@@ -5,6 +5,7 @@ from fastapi.responses import StreamingResponse
 
 from app.config import get_settings
 from app.logger import get_logger
+from app.metrics import sse_connections
 from app.services.chat.session_service import SessionService
 from app.services.hydrator import Hydrator
 from app.dependencies.services import get_hydrator, get_session_service
@@ -32,6 +33,7 @@ async def control(
 
     async def stream():
         logger.info("control stream opened (session: %s)", session.id)
+        sse_connections.labels("control").inc()
         try:
             yield ": connected\n\n"
             async for event in sessions.subscribe(session.id):
@@ -40,6 +42,7 @@ async def control(
                     continue
                 yield f"data: {frame.model_dump_json(by_alias=True)}\n\n"
         finally:
+            sse_connections.labels("control").dec()
             logger.info("control stream closed (session: %s)", session.id)
             await asyncio.shield(sessions.disconnect(session.id))
 

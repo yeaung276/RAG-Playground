@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
 from app.db.session import async_session_maker
+from app.metrics import message_feedback_total
 from app.services.admin.priority_service import PriorityService
 from app.services.chat.message_service import MessageService
 from app.services.chat.session_service import SessionService
@@ -70,6 +71,7 @@ async def set_message_feedback(
     priority: PriorityService = Depends(get_priority_service),
 ):
     message = await messages.set_feedback(session_id, message_id, request.value)
+    message_feedback_total.labels(request.value or "cleared").inc()
     if request.value == "like":
         await priority.bump(session_id, upvote_delta=1)
     elif request.value == "dislike":

@@ -1,6 +1,7 @@
 import json
 
 from app.logger import get_logger
+from app.metrics import experiment_runs_total, experiment_stage_duration_seconds
 from app.models.dataset import Dataset
 from app.models.experiment import Experiment
 from app.models.node import Node
@@ -37,17 +38,21 @@ class EvaluationProcessor:
             experiment = await self._get_experiment(experiment_id)
             if not (skip_indexing or experiment.snapshot_retrieval_config["skip_dataset_indexing"]):
                 await self._update_experiment(experiment_id, status="importing")
-                await self._index_dataset_into_kb(experiment)
+                with experiment_stage_duration_seconds.labels(stage="importing").time():
+                    await self._index_dataset_into_kb(experiment)
             await self._update_experiment(experiment_id, status="running")
-            scores = await self._retrieve_and_score(experiment)
+            with experiment_stage_duration_seconds.labels(stage="scoring").time():
+                scores = await self._retrieve_and_score(experiment)
             await self._update_experiment(
                 experiment_id,
                 status="success",
                 result_path=result_path(experiment_id),
                 scores=scores,
             )
+            experiment_runs_total.labels(status="success").inc()
         except Exception as exc:  # noqa: BLE001 — a background task must never crash its caller
             await self._update_experiment(experiment_id, status="failed", error=str(exc)[:2000])
+            experiment_runs_total.labels(status="failed").inc()
             logger.exception("Evaluation failed for experiment %s", experiment_id)
 
     async def _index_dataset_into_kb(self, experiment: Experiment) -> None:

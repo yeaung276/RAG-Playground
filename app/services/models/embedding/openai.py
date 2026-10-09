@@ -1,8 +1,15 @@
 import os
+import time
 import httpx
 
 from aiolimiter import AsyncLimiter
 
+from app.metrics import (
+    model_batch_size,
+    model_rate_limit_wait_seconds,
+    model_request_duration_seconds,
+    model_request_errors_total,
+)
 from app.services.models.embedding.base import logger
 from app.services.utils.http import http_retry
 from app.utils.env import require_env
@@ -28,11 +35,20 @@ class OpenAIEmbedder:
 
     @http_retry(logger)
     async def embed(self, texts: list[str]) -> list[list[float]]:
+        model_batch_size.labels(self.model, "embed").observe(len(texts))
+        waited = time.perf_counter()
         async with _limiter:
-            r = await self.client.post(
-                f"{self.base_url}/embeddings",
-                json={"model": self.model, "input": texts},
+            model_rate_limit_wait_seconds.labels(self.model, "embed").observe(
+                time.perf_counter() - waited
             )
-        r.raise_for_status()
+            with (
+                model_request_duration_seconds.labels(self.model, "embed").time(),
+                model_request_errors_total.labels(self.model, "embed").count_exceptions(),
+            ):
+                r = await self.client.post(
+                    f"{self.base_url}/embeddings",
+                    json={"model": self.model, "input": texts},
+                )
+                r.raise_for_status()
         data = sorted(r.json()["data"], key=lambda d: d["index"])
         return [d["embedding"] for d in data]

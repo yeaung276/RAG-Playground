@@ -6,6 +6,11 @@ from qdrant_client import AsyncQdrantClient, models
 from sqlalchemy import select
 
 from app.logger import get_logger
+from app.metrics import (
+    retrieval_duration_seconds,
+    retrieval_empty_total,
+    retrieval_stage_duration_seconds,
+)
 from app.models.chunk import Chunk as ChunkRow
 from app.models.kb import KnowledgeBase
 from app.services.errors import ConflictError, NotFoundError
@@ -98,18 +103,23 @@ class RetrievalService:
         rerank_pool = rerank_pool or top_k
         prefetch_limit = prefetch_limit or rerank_pool * 2
 
-        search_text = await self._hypothesize(query, hyde) if hyde else query
-        hits = await self._scan_points(
-            kb_id, search_text, embedders, prefetch_limit, limit=rerank_pool
-        )
-        if not hits:
-            return []
+        with retrieval_duration_seconds.time():
+            search_text = query
+            if hyde:
+                with retrieval_stage_duration_seconds.labels(stage="hyde").time():
+                    search_text = await self._hypothesize(query, hyde)
+            hits = await self._scan_points(
+                kb_id, search_text, embedders, prefetch_limit, limit=rerank_pool
+            )
+            if not hits:
+                retrieval_empty_total.inc()
+                return []
 
-        if not rerank_on:
-            return await self._hydrate_parents(hits[:top_k])
+            if not rerank_on:
+                return await self._hydrate_parents(hits[:top_k])
 
-        hits = await self._hydrate_parents(hits)
-        return (await self._rerank(query, hits, rerank_on, reranker))[:top_k]
+            hits = await self._hydrate_parents(hits)
+            return (await self._rerank(query, hits, rerank_on, reranker))[:top_k]
 
     async def _get_embedding_model_from_config(
         self, index_types: list[IndexSpec]
@@ -176,35 +186,37 @@ class RetrievalService:
         prefetch_limit: int,
         limit: int,
     ):
-        prefetch = [
-            models.Prefetch(
-                query=(await embedder.embed([query]))[0],
-                using=index_type,
-                limit=prefetch_limit,
-            )
-            for index_type, embedder in embedders.items()
-        ]
+        with retrieval_stage_duration_seconds.labels(stage="embed").time():
+            prefetch = [
+                models.Prefetch(
+                    query=(await embedder.embed([query]))[0],
+                    using=index_type,
+                    limit=prefetch_limit,
+                )
+                for index_type, embedder in embedders.items()
+            ]
 
         single = prefetch[0] if len(prefetch) == 1 else None
-        found = await self.qdrant.query_points_groups(
-            kb_id,
-            group_by="chunk_id",
-            prefetch=None if single else prefetch,
-            query=(
-                single.query if single else models.FusionQuery(fusion=models.Fusion.RRF)
-            ),
-            using=single.using if single else None,
-            query_filter=models.Filter(
-                must=[
-                    models.FieldCondition(
-                        key="parent", match=models.MatchValue(value=False)
-                    )
-                ]
-            ),
-            limit=limit,
-            group_size=1,
-            with_payload=["content", "own_chunk_id"],
-        )
+        with retrieval_stage_duration_seconds.labels(stage="search").time():
+            found = await self.qdrant.query_points_groups(
+                kb_id,
+                group_by="chunk_id",
+                prefetch=None if single else prefetch,
+                query=(
+                    single.query if single else models.FusionQuery(fusion=models.Fusion.RRF)
+                ),
+                using=single.using if single else None,
+                query_filter=models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="parent", match=models.MatchValue(value=False)
+                        )
+                    ]
+                ),
+                limit=limit,
+                group_size=1,
+                with_payload=["content", "own_chunk_id"],
+            )
         return [
             Retrieved(
                 chunk_id=str(group.id),
@@ -216,16 +228,17 @@ class RetrievalService:
         ]
 
     async def _hydrate_parents(self, retrieved: list[Retrieved]):
-        async with self.session_maker() as session:
-            chunks = (
-                (
-                    await session.execute(
-                        select(ChunkRow).where(ChunkRow.id.in_([c.chunk_id for c in retrieved]))
+        with retrieval_stage_duration_seconds.labels(stage="hydrate").time():
+            async with self.session_maker() as session:
+                chunks = (
+                    (
+                        await session.execute(
+                            select(ChunkRow).where(ChunkRow.id.in_([c.chunk_id for c in retrieved]))
+                        )
                     )
+                    .scalars()
+                    .all()
                 )
-                .scalars()
-                .all()
-            )
 
         by_id = {c.id: c for c in chunks}
         for c in retrieved:
@@ -251,7 +264,8 @@ class RetrievalService:
             hit.chunk_id if rerank_on == "parent" else hit.matched_chunk_id
             for hit in retrieved
         ]
-        scores = await reranker.rank(query, texts, chunk_ids)
+        with retrieval_stage_duration_seconds.labels(stage="rerank").time():
+            scores = await reranker.rank(query, texts, chunk_ids)
         for hit, score in zip(retrieved, scores):
             hit.score = score
         return sorted(retrieved, key=lambda hit: hit.score, reverse=True)

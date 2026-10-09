@@ -4,6 +4,11 @@ import random
 from langchain_core.language_models import BaseChatModel
 
 from app.logger import get_logger
+from app.metrics import (
+    dataset_generation_duration_seconds,
+    dataset_generation_total,
+    dataset_pairs_generated_total,
+)
 from app.models.dataset import Dataset
 from app.schemas.dataset import Category
 from app.services.dataset.dataset_service import result_key
@@ -39,26 +44,30 @@ class DatasetProcessor:
             await self._save(dataset_id, status="running", file_count=len(files))
 
             pairs = []
-            for parsed, (name, text) in enumerate(files, start=1):
-                logger.info("  [%d/%d] %s", parsed, len(files), name)
-                categories = self._weighted_categories(
-                    dataset.mix, dataset.sample_per_file
-                )
-                samples = await datagen.create_samples(
-                    text, categories, dataset.labels
-                )
-                pairs += [
-                    {"source_file": name, **sample.model_dump(mode="json")}
-                    for sample in samples
-                ]
-                await self._save(dataset_id, parsed_count=parsed, pair_count=len(pairs))
+            with dataset_generation_duration_seconds.time():
+                for parsed, (name, text) in enumerate(files, start=1):
+                    logger.info("  [%d/%d] %s", parsed, len(files), name)
+                    categories = self._weighted_categories(
+                        dataset.mix, dataset.sample_per_file
+                    )
+                    samples = await datagen.create_samples(
+                        text, categories, dataset.labels
+                    )
+                    pairs += [
+                        {"source_file": name, **sample.model_dump(mode="json")}
+                        for sample in samples
+                    ]
+                    dataset_pairs_generated_total.inc(len(samples))
+                    await self._save(dataset_id, parsed_count=parsed, pair_count=len(pairs))
 
             key = result_key(dataset_id)
             await self.storage.save(json.dumps(pairs, indent=2).encode(), key)
             await self._save(dataset_id, status="ready", result_key=key)
+            dataset_generation_total.labels(status="ready").inc()
             logger.info("Generated %s: %d pair(s) at %s", dataset_id, len(pairs), key)
         except Exception as exc:  # noqa: BLE001 — a background task must never crash its caller
             await self._save(dataset_id, status="failed", error=str(exc)[:2000])
+            dataset_generation_total.labels(status="failed").inc()
             logger.exception("Generation failed for dataset %s", dataset_id)
 
     async def _get_datagen(self, model_id: str | None) -> DataGenerationService:

@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.logger import get_logger
 from app.config import get_settings
+from app.metrics import chat_session_events_total, chat_takeovers_total
 from app.models.message import Message
 from app.models.session import Session
 from app.services.realtime import CHAT_CHANNEL, Event, PubSub
@@ -40,6 +41,7 @@ class SessionService:
             db.add(session)
             await db.commit()
             await db.refresh(session)
+        chat_session_events_total.labels("created").inc()
         logger.info("session opened (id: %s)", session.id)
         return session
 
@@ -50,6 +52,7 @@ class SessionService:
                 session = Session(id=session_id, status=status)
                 db.add(session)
                 await db.commit()
+                chat_session_events_total.labels("created").inc()
                 logger.info("session opened (id: %s)", session_id)
         return session
 
@@ -78,6 +81,7 @@ class SessionService:
                 .values(status="disconnected", disconnected_at=func.now())
             )
             await db.commit()
+        chat_session_events_total.labels("disconnected").inc()
         logger.info("session disconnected (id: %s)", session_id)
 
     async def reconcile_stale_status(self, session_id: str) -> None:
@@ -100,6 +104,7 @@ class SessionService:
             )
             await db.commit()
         if result.rowcount:
+            chat_session_events_total.labels("expired").inc()
             logger.info("stale session disconnected (id: %s)", session_id)
 
     async def reconnect(self, session_id: str) -> Session | None:
@@ -113,6 +118,7 @@ class SessionService:
                 .values(status="active", disconnected_at=None)
             )
             await db.commit()
+        chat_session_events_total.labels("reconnected").inc()
         logger.info("session reconnected (id: %s)", session_id)
         return session
 
@@ -136,6 +142,7 @@ class SessionService:
                 )
             )
             await db.commit()
+        chat_takeovers_total.labels("intercept").inc()
         logger.info("session intercepted (id: %s, admin: %s)", session_id, admin_id)
 
     async def release(self, session_id: str) -> None:
@@ -147,4 +154,5 @@ class SessionService:
                 .values(intercepted=False)
             )
             await db.commit()
+        chat_takeovers_total.labels("release").inc()
         logger.info("session released (id: %s)", session_id)

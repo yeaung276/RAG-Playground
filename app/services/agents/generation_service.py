@@ -18,7 +18,14 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.langgraph import LGManager
 from app.logger import get_logger
-from app.metrics import generation_duration_seconds, generation_requests_total
+from app.metrics import (
+    agent_handoffs_total,
+    agent_tokens_total,
+    agent_tool_calls_total,
+    agent_tool_duration_seconds,
+    generation_duration_seconds,
+    generation_requests_total,
+)
 from app.models.agent import Agent
 from app.models.model import Model
 from app.schemas.agent import (
@@ -38,7 +45,7 @@ from app.schemas.messages import (
 )
 from app.services.agents import tool_runner
 from app.services.agents.agent_service import AgentService
-from app.services.agents.middleware import max_step, transfer_alone
+from app.services.agents.middleware import max_step, model_timer, transfer_alone
 from app.services.retrieval.retrieval_service import RetrievalService
 from app.services.utils.messages import thinking
 from app.services.errors import ConflictError
@@ -111,6 +118,9 @@ class GenerationService:
                     continue
                 for msg in update.get("messages") or []:
                     if isinstance(msg, AIMessage):
+                        usage = msg.usage_metadata or {}
+                        agent_tokens_total.labels(agent, "input").inc(usage.get("input_tokens", 0))
+                        agent_tokens_total.labels(agent, "output").inc(usage.get("output_tokens", 0))
                         yield MessageFrame(
                             agent=agent,
                             role="ai",
@@ -119,7 +129,7 @@ class GenerationService:
                             usage=msg.usage_metadata,
                         )
                     elif isinstance(msg, ToolMessage):
-                        yield ToolResultFrame(
+                        frame = ToolResultFrame(
                             agent=agent,
                             name=msg.name,
                             args=getattr(msg.artifact, "args", {}),
@@ -127,6 +137,12 @@ class GenerationService:
                             status="error" if msg.status == "error" else "success",
                             elapsed_ms=getattr(msg.artifact, "elapsed_ms", None),
                         )
+                        agent_tool_calls_total.labels(agent, frame.name, frame.status).inc()
+                        if frame.elapsed_ms is not None:
+                            agent_tool_duration_seconds.labels(frame.name).observe(
+                                frame.elapsed_ms / 1000
+                            )
+                        yield frame
 
     async def assemble_graph(self) -> CompiledStateGraph:
         async def loader() -> StateGraph:
@@ -175,7 +191,8 @@ class GenerationService:
             tools=defaults + tools + handoffs,
             system_prompt=agent.instruction,
             middleware=[
-                max_step(agent.max_step),
+                max_step(agent.max_step, agent.name),
+                model_timer(agent.name),
                 transfer_alone({t.name for t in handoffs}),
             ],
             name=agent.name,
@@ -271,6 +288,7 @@ class GenerationService:
                 state: Annotated[AgentState, InjectedState],
                 tool_call_id: Annotated[str, InjectedToolCallId],
             ) -> Command:
+                agent_handoffs_total.labels(agent.name, name).inc()
                 return Command(
                     goto=name,
                     graph=Command.PARENT,

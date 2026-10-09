@@ -1,4 +1,9 @@
 from app.logger import get_logger
+from app.metrics import (
+    file_processing_duration_seconds,
+    file_processing_in_progress,
+    file_processing_total,
+)
 from app.models.node import Node
 from app.services.retrieval.document import KbConfig
 from app.services.retrieval.extraction_service import ExtractionService
@@ -44,25 +49,31 @@ class FileProcessor:
                     status="failed",
                     error=f"Unsupported file type: {node.mime_type}",
                 )
+                file_processing_total.labels(status="unsupported").inc()
                 return
 
             try:
-                logger.info("Extracting contents from file %s", node.storage_key)
-                buf = await self.storage.load(node.storage_key)
-                document = await self.extraction.process(
-                    buf, node.mime_type, name=node.storage_key
-                )
+                with (
+                    file_processing_in_progress.track_inprogress(),
+                    file_processing_duration_seconds.time(),
+                ):
+                    logger.info("Extracting contents from file %s", node.storage_key)
+                    buf = await self.storage.load(node.storage_key)
+                    document = await self.extraction.process(
+                        buf, node.mime_type, name=node.storage_key
+                    )
 
-                logger.info(
-                    "Indexing file %s with config %s", node.storage_key, node.config
-                )
-                config = KbConfig(**(node.config or {}))
-                await self.indexing.create_index(
-                    document, config, node_id=node_id, kb_id=node.kb_id
-                )
+                    logger.info(
+                        "Indexing file %s with config %s", node.storage_key, node.config
+                    )
+                    config = KbConfig(**(node.config or {}))
+                    await self.indexing.create_index(
+                        document, config, node_id=node_id, kb_id=node.kb_id
+                    )
                 await self._save(
                     node_id, status="completed", content=document.model_dump(mode="json")
                 )
+                file_processing_total.labels(status="completed").inc()
                 logger.info("Indexed node %s (%d page(s))", node_id, len(document.pages))
             except Exception as exc:  # noqa: BLE001 — surface failure to the user
                 await self._save(
@@ -70,6 +81,7 @@ class FileProcessor:
                     status="failed",
                     error=str(exc)[:_MAX_ERROR_LEN] or exc.__class__.__name__,
                 )
+                file_processing_total.labels(status="failed").inc()
                 logger.exception("Indexing failed for node %s", node_id)
         except Exception:  # noqa: BLE001 — a background task must never crash its caller
             logger.exception("File processing task crashed for node %s", node_id)

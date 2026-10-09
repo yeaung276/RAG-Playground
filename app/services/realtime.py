@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.logger import get_logger
+from app.metrics import realtime_events_dropped_total, realtime_reconnects_total
 
 logger = get_logger("services.realtime")
 
@@ -86,12 +87,14 @@ class PubSub:
         try:
             envelope = _Envelope.model_validate_json(payload)
         except Exception:
+            realtime_events_dropped_total.labels("malformed").inc()
             logger.warning("dropping malformed pubsub payload: %r", payload[:200])
             return
         for queue in self._subs.get((channel, envelope.topic), set()):
             try:
                 queue.put_nowait(envelope.event)
             except asyncio.QueueFull:
+                realtime_events_dropped_total.labels("slow_subscriber").inc()
                 logger.warning(
                     "dropping event for slow subscriber (channel: %s, topic: %s)",
                     channel,
@@ -131,10 +134,12 @@ class PubSub:
                         await asyncio.wait_for(terminated.wait(), HEARTBEAT_INTERVAL)
                     except asyncio.TimeoutError:
                         await asyncio.wait_for(conn.fetchval("SELECT 1"), HEARTBEAT_TIMEOUT)
+                realtime_reconnects_total.inc()
                 logger.warning("pubsub connection terminated; reconnecting")
             except asyncio.CancelledError:
                 raise
             except Exception as e:
+                realtime_reconnects_total.inc()
                 logger.warning("pubsub connect failed (%s); retry in %ss", e, backoff)
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, 30)

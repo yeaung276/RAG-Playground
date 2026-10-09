@@ -1,10 +1,17 @@
 import asyncio
 import os
+import time
 
 import httpx
 from aiolimiter import AsyncLimiter
 from qdrant_client import AsyncQdrantClient, models
 
+from app.metrics import (
+    model_batch_size,
+    model_rate_limit_wait_seconds,
+    model_request_duration_seconds,
+    model_request_errors_total,
+)
 from app.services.models.rerank.base import logger
 from app.services.utils.http import http_retry
 from app.utils.env import require_env
@@ -76,7 +83,20 @@ class TEILateInteractionReranker:
 
     @http_retry(logger)
     async def _embed_batch(self, texts: list[str]) -> list[list[list[float]]]:
+        model_batch_size.labels(self.model, "late_interaction").observe(len(texts))
+        waited = time.perf_counter()
         async with _limiter:
-            r = await self.client.post(f"{self.base_url}/embed_all", json={"inputs": texts})
-        r.raise_for_status()
+            model_rate_limit_wait_seconds.labels(self.model, "late_interaction").observe(
+                time.perf_counter() - waited
+            )
+            with (
+                model_request_duration_seconds.labels(self.model, "late_interaction").time(),
+                model_request_errors_total.labels(
+                    self.model, "late_interaction"
+                ).count_exceptions(),
+            ):
+                r = await self.client.post(
+                    f"{self.base_url}/embed_all", json={"inputs": texts}
+                )
+                r.raise_for_status()
         return r.json()

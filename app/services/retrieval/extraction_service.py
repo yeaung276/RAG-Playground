@@ -10,6 +10,7 @@ import threading
 import httpx
 
 from app.logger import get_logger
+from app.metrics import ocr_page_duration_seconds, ocr_pages_total, ocr_requests_in_flight
 from app.services.retrieval.document import Block, BlockType, Document, Page
 from app.services.utils.http import http_retry
 from app.utils.env import require_env
@@ -226,7 +227,14 @@ class ExtractionService:
             "top_p": 0.6,
         }
         async with _sem:
-            return await self._post_with_retry(payload, page_no, total, name)
+            with (
+                ocr_requests_in_flight.track_inprogress(),
+                ocr_page_duration_seconds.time(),
+                ocr_pages_total.labels(status="failed").count_exceptions(),
+            ):
+                result = await self._post_with_retry(payload, page_no, total, name)
+        ocr_pages_total.labels(status="completed").inc()
+        return result
 
     @http_retry(logger)
     async def _post_with_retry(

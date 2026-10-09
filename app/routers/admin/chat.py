@@ -15,6 +15,7 @@ from app.dependencies.services import (
     get_priority_service,
     get_session_service,
 )
+from app.metrics import sse_connections
 from app.models.admin import Admin
 from app.schemas.admin import AdminChatSessionPage, AdminMessage
 from app.schemas.messages import ChatResponse
@@ -97,6 +98,7 @@ async def intercept_session(
             await messages.create(session_id, "system", "Admin left the chat")
 
     async def stream():
+        sse_connections.labels(f"admin_{mode}").inc()
         try:
             yield ": connected\n\n"
             async for event in sessions.subscribe(session_id):
@@ -105,6 +107,7 @@ async def intercept_session(
                     continue
                 yield f"data: {frame.model_dump_json(by_alias=True)}\n\n"
         finally:
+            sse_connections.labels(f"admin_{mode}").dec()
             if mode == "intercept":
                 await asyncio.shield(leave())
 

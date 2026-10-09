@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from app.config import get_settings
 from app.dependencies.admin import require_admin
 from app.dependencies.services import get_admin_service
+from app.metrics import admin_logins_total
 from app.models.admin import Admin
 from app.schemas.admin import AdminRead, LoginRequest
 from app.services.admin.admin_service import AdminService
@@ -19,7 +20,9 @@ async def login(
 ):
     admin = await svc.authenticate(payload.username, payload.password)
     if admin is None:
+        admin_logins_total.labels("failure").inc()
         raise HTTPException(status_code=401, detail="Invalid username or password")
+    admin_logins_total.labels("success").inc()
 
     settings = get_settings()
     token = sign_token(admin.id, settings.ADMIN_SECRET_KEY)

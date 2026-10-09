@@ -1,9 +1,16 @@
 import asyncio
 import os
+import time
 
 import httpx
 from aiolimiter import AsyncLimiter
 
+from app.metrics import (
+    model_batch_size,
+    model_rate_limit_wait_seconds,
+    model_request_duration_seconds,
+    model_request_errors_total,
+)
 from app.services.models.rerank.base import logger
 from app.services.utils.http import http_retry
 from app.utils.env import require_env
@@ -43,12 +50,21 @@ class TEIReranker:
 
     @http_retry(logger)
     async def _rank_batch(self, query: str, texts: list[str]) -> list[float]:
+        model_batch_size.labels(self.model, "rerank").observe(len(texts))
+        waited = time.perf_counter()
         async with _limiter:
-            r = await self.client.post(
-                f"{self.base_url}/rerank",
-                json={"query": query, "texts": texts, "truncate": True},
+            model_rate_limit_wait_seconds.labels(self.model, "rerank").observe(
+                time.perf_counter() - waited
             )
-        r.raise_for_status()
+            with (
+                model_request_duration_seconds.labels(self.model, "rerank").time(),
+                model_request_errors_total.labels(self.model, "rerank").count_exceptions(),
+            ):
+                r = await self.client.post(
+                    f"{self.base_url}/rerank",
+                    json={"query": query, "texts": texts, "truncate": True},
+                )
+                r.raise_for_status()
         scores = [0.0] * len(texts)
         for item in r.json():
             scores[item["index"]] = item["score"]

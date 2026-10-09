@@ -2,12 +2,15 @@ import logging
 
 import httpx
 from tenacity import (
+    RetryCallState,
     before_sleep_log,
     retry,
     retry_if_exception,
     stop_after_attempt,
     wait_exponential,
 )
+
+from app.metrics import http_retries_total
 
 RETRY_STATUS = {429, 500, 502, 503, 504}
 MAX_RETRIES = 4
@@ -23,10 +26,16 @@ def is_retryable(exc: BaseException) -> bool:
 
 def http_retry(logger: logging.Logger):
     """Shared tenacity policy for httpx calls: exponential backoff on transient failures."""
+    log = before_sleep_log(logger, logging.WARNING)
+
+    def before_sleep(state: RetryCallState) -> None:
+        http_retries_total.labels(state.fn.__qualname__ if state.fn else "unknown").inc()
+        log(state)
+
     return retry(
         stop=stop_after_attempt(MAX_RETRIES),
         wait=wait_exponential(multiplier=RETRY_BACKOFF, max=30),
         retry=retry_if_exception(is_retryable),
-        before_sleep=before_sleep_log(logger, logging.WARNING),
+        before_sleep=before_sleep,
         reraise=True,
     )
