@@ -1,5 +1,7 @@
 import { Link } from 'react-router-dom';
-import { C, H2, H3, Note, P, Table } from './prose';
+import agentsImg from './assets/agents.png';
+import tracingImg from './assets/tracing-and-testing-agent.png';
+import { C, Figure, H2, H3, Note, P, Table } from './prose';
 
 const GENERAL: [string, string][] = [
   ['Name', 'How the agent is identified everywhere, including as a handoff target. Set when you add the agent and fixed from then on.'],
@@ -16,8 +18,9 @@ const MODEL: [string, string][] = [
 const KNOWLEDGE: [string, string][] = [
   ['Knowledge', 'Optional. Attach one knowledge base and the agent is given a search tool over its documents.'],
   ['Index types', 'Which of the base’s indexes to search. Only the indexes it was built with are offered, at least one is required, and searching several fuses their rankings.'],
+  ['HyDE', 'Search with a hypothetical answer written from the query instead of the query itself. Only works when the base has a HyDE model.'],
   ['Top K', 'How many parent chunks come back to the model. Blank leaves the server default.'],
-  ['Rerank on', 'Off, or rescore the hits with a cross-encoder before the cut — on the parent chunk, or on the child that actually matched.'],
+  ['Rerank on', 'Off, or rescore the hits with the base’s reranker (cross-encoder or late interaction) before the cut — on the parent chunk, or on the child that actually matched.'],
   ['Rerank pool', 'How many hits the reranker scores before cutting to Top K. Blank means Top K.'],
   ['Prefetch limit', 'How many candidates each index contributes before fusion. Blank means twice the rerank pool.'],
 ];
@@ -53,6 +56,11 @@ export default function Agents() {
         page — the roster on the left, the selected agent's settings on the right across five
         tabs: General, Model, Knowledge, Tools and Handoff.
       </P>
+      <Figure
+        src={agentsImg}
+        alt="Agents page with the roster on the left and the General tab of the selected agent on the right"
+        caption="The roster, with the entrypoint marked, and the selected agent's settings."
+      />
       <P>
         Changes on the right are a draft until you press <C>Save changes</C>. Adding, deleting and
         promoting agents in the roster take effect immediately.
@@ -200,6 +208,11 @@ export default function Agents() {
         call with its arguments, result and elapsed time, and which agent produced it. Reasoning
         and answer tokens stream in as they arrive.
       </P>
+      <Figure
+        src={tracingImg}
+        alt="Test run dialog with the conversation on the left and the trace of messages, tool calls and tool results on the right"
+        caption="A test run: the conversation on the left, every frame of the trace on the right."
+      />
       <P>
         Each panel holds one throwaway thread — turns build on each other while it is open, and
         closing it drops the conversation. It runs the <i>saved</i> agents, so save your draft

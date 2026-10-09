@@ -39,6 +39,22 @@ export function Note({ title, children }: { title?: string; children: React.Reac
   );
 }
 
+export function Figure({ src, alt, caption }: { src: string; alt: string; caption?: string }) {
+  return (
+    <figure className="mt-6">
+      <img
+        src={src}
+        alt={alt}
+        loading="lazy"
+        className="w-full rounded-lg border border-slate-200 shadow-sm"
+      />
+      {caption && (
+        <figcaption className="mt-2 text-center text-xs text-slate-500">{caption}</figcaption>
+      )}
+    </figure>
+  );
+}
+
 export function Snippet({ code, lang }: { code: string; lang?: string }) {
   const [copied, setCopied] = useState(false);
 

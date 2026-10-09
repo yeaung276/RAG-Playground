@@ -53,8 +53,8 @@ export default function Models() {
         <Link to="/models" className="font-medium text-indigo-600 hover:text-indigo-700">
           Models
         </Link>{' '}
-        page and it becomes selectable wherever a model is needed — knowledge indexing,
-        reranking, and agents.
+        page and it becomes selectable wherever a model is needed — knowledge indexing, semantic
+        chunking, reranking, HyDE, agents, and dataset generation.
       </P>
 
       <H2 id="fields">Fields</H2>
