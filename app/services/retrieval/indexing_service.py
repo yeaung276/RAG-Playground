@@ -1,5 +1,6 @@
 import asyncio
 import uuid
+from itertools import batched
 
 from qdrant_client import AsyncQdrantClient, models
 
@@ -13,9 +14,12 @@ from app.services.retrieval.chunking import (
 )
 from app.services.models.embedding import Bm25Embedder, Embedder
 from app.services.models.model_service import ModelService
-from app.services.retrieval.document import Document, KbConfig
+from app.services.retrieval.document import Document, KbConfig, LateInteractionReranker
 
 logger = get_logger(__name__)
+
+# a multivector point is megabytes of JSON; keeps each request under Qdrant's 32 MB cap
+UPSERT_BATCH = 4
 
 
 class IndexingService:
@@ -34,8 +38,36 @@ class IndexingService:
         """Chunk a document, embed its child chunks, and persist parents (chunk
         table) + children (the KB's Qdrant collection). Opens and commits its own
         session, holding it open until the upsert lands."""
-        chunker = await self._get_chunker_from_config(config)
-        embedders = await self._get_embedding_model_from_config(config)
+        chunker, embedders = await self.resolve_models(config)
+        await self.create_index_with(
+            document,
+            config,
+            chunker=chunker,
+            embedders=embedders,
+            node_id=node_id,
+            kb_id=kb_id,
+        )
+
+    async def resolve_models(
+        self, config: KbConfig
+    ) -> tuple[Chunker, dict[str, Embedder]]:
+        """Build the config's chunker and embedders."""
+        return (
+            await self._get_chunker_from_config(config),
+            await self._get_embedding_model_from_config(config),
+        )
+
+    async def create_index_with(
+        self,
+        document: Document,
+        config: KbConfig,
+        *,
+        chunker: Chunker,
+        embedders: dict[str, Embedder],
+        node_id: str,
+        kb_id: str,
+    ) -> None:
+        """`create_index` with models already built by `resolve_models`."""
 
         # chunking is sync + blocking (splitters, and semantic does sync HTTP)
         corpus = await asyncio.to_thread(chunker.chunk, document)
@@ -44,6 +76,13 @@ class IndexingService:
             index_type: await embedder.embed(texts)
             for index_type, embedder in embedders.items()
         }
+        parent_vectors = (
+            await embedders[config.reranker.model_id].embed(
+                [p.content for p in corpus.parents]
+            )
+            if isinstance(config.reranker, LateInteractionReranker)
+            else []
+        )
 
         async with self.session_maker() as session:
             pages_by_parent = {}
@@ -60,26 +99,39 @@ class IndexingService:
                     )
                 )
             await session.flush()
-            await self.qdrant.upsert(
-                kb_id,
-                points=[
-                    models.PointStruct(
-                        id=str(uuid.uuid4()),
-                        vector={
-                            index_type: embedded[i]
-                            for index_type, embedded in vectors.items()
-                        },
-                        payload={
-                            "chunk_id": child.parent_id,
-                            "node_id": node_id,
-                            "content": child.content,
-                            "source": document.source,
-                            "pages": pages_by_parent.get(child.parent_id, []),
-                        },
-                    )
-                    for i, child in enumerate(corpus.children)
-                ],
-            )
+            points = [
+                models.PointStruct(
+                    id=str(uuid.uuid4()),
+                    vector={
+                        index_type: embedded[i]
+                        for index_type, embedded in vectors.items()
+                    },
+                    payload={
+                        "chunk_id": child.parent_id,
+                        "own_chunk_id": child.id,
+                        "node_id": node_id,
+                        "content": child.content,
+                        "source": document.source,
+                        "pages": pages_by_parent.get(child.parent_id, []),
+                        "parent": False,
+                    },
+                )
+                for i, child in enumerate(corpus.children)
+            ] + [
+                models.PointStruct(
+                    id=str(uuid.uuid4()),
+                    vector={config.reranker.model_id: embedded},
+                    payload={
+                        "chunk_id": parent.id,
+                        "own_chunk_id": parent.id,
+                        "node_id": node_id,
+                        "parent": True,
+                    },
+                )
+                for parent, embedded in zip(corpus.parents, parent_vectors)
+            ]
+            for batch in batched(points, UPSERT_BATCH):
+                await self.qdrant.upsert(kb_id, points=list(batch))
             await session.commit()
 
         logger.info(
@@ -107,7 +159,8 @@ class IndexingService:
     async def _get_embedding_model_from_config(
         self, config: KbConfig
     ) -> dict[str, Embedder]:
-        """Resolve the config's index types to their backing adapters."""
+        """Resolve the config's index types, plus a late-interaction reranker, to
+        their backing adapters."""
         embedders: dict[str, Embedder] = {}
         async with self.session_maker() as session:
             for index in config.index_types:
@@ -120,6 +173,10 @@ class IndexingService:
                         ).resolve_model(index.model_id)
                     case _:
                         raise ValueError(f"Unsupported index type: {index!r}")
+            if isinstance(config.reranker, LateInteractionReranker):
+                embedders[config.reranker.model_id] = await ModelService(
+                    session
+                ).resolve_model(config.reranker.model_id)
         return embedders
 
     async def _get_chunker_from_config(self, config: KbConfig) -> Chunker:

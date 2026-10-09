@@ -27,6 +27,7 @@ export default function NewKbModal({ open, onOpenChange, onSubmit }: Props) {
   const nameRef = useRef<HTMLInputElement>(null);
   const { data: embeddingModels } = useModels(1, 'bi-encoder', 100);
   const { data: rerankModels } = useModels(1, 'cross-encoder', 100);
+  const { data: lateInteractionModels } = useModels(1, 'late-interaction', 100);
   const { data: chatModels } = useModels(1, 'decoder', 100);
 
   const form = useForm({
@@ -262,7 +263,7 @@ export default function NewKbModal({ open, onOpenChange, onSubmit }: Props) {
                     const reranker = field.state.value;
                     const models =
                       reranker?.type === 'late-interaction'
-                        ? embeddingModels?.items
+                        ? lateInteractionModels?.items
                         : rerankModels?.items;
                     return (
                       <Row title="Reranker" hint="Reorders results by relevance.">

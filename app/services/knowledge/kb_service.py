@@ -7,7 +7,7 @@ from app.models.node import Node
 from app.models.kb import KnowledgeBase
 from app.schemas.knowledge import KnowledgeBaseRead
 from app.services.models.model_service import ModelService
-from app.services.retrieval.document import KbConfig, VectorIndex
+from app.services.retrieval.document import KbConfig, LateInteractionReranker, VectorIndex
 from app.services.errors import NotFoundError
 
 
@@ -103,16 +103,31 @@ class KnowledgeBaseService:
         )
 
     async def _create_collection(self, kb_id: str, config: KbConfig) -> None:
+        vectors_config = {
+            index.vector_name: models.VectorParams(
+                size=await self._dimension_of(index.model_id),
+                distance=models.Distance.COSINE,
+            )
+            for index in config.index_types
+            if isinstance(index, VectorIndex)
+        }
+        
+        # Special case for late-interaction embedder
+        if isinstance(config.reranker, LateInteractionReranker):
+            reranker = await self.model_service.resolve_model(config.reranker.model_id)
+            vectors_config[config.reranker.model_id] = models.VectorParams(
+                size=len((await reranker.embed(["dimension probe"]))[0][0]),
+                distance=models.Distance.COSINE,
+                multivector_config=models.MultiVectorConfig(
+                    comparator=models.MultiVectorComparator.MAX_SIM
+                ),
+                # rerank-only, never searched, so skip building the graph index
+                hnsw_config=models.HnswConfigDiff(m=0),
+            )
+
         await self.qdrant.create_collection(
             kb_id,
-            vectors_config={
-                index.vector_name: models.VectorParams(
-                    size=await self._dimension_of(index.model_id),
-                    distance=models.Distance.COSINE,
-                )
-                for index in config.index_types
-                if isinstance(index, VectorIndex)
-            },
+            vectors_config=vectors_config,
             sparse_vectors_config={
                 index.vector_name: models.SparseVectorParams(modifier=models.Modifier.IDF)
                 for index in config.index_types
@@ -126,6 +141,14 @@ class KnowledgeBaseService:
         
         await self.qdrant.create_payload_index(
             kb_id, "node_id", field_schema=models.PayloadSchemaType.KEYWORD
+        )
+
+        await self.qdrant.create_payload_index(
+            kb_id, "parent", field_schema=models.PayloadSchemaType.BOOL
+        )
+
+        await self.qdrant.create_payload_index(
+            kb_id, "own_chunk_id", field_schema=models.PayloadSchemaType.KEYWORD
         )
 
     async def _dimension_of(self, model_id: str) -> int:

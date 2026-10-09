@@ -11,6 +11,8 @@ const CAPABILITY_NOTES: Record<Capability, string> = {
   'bi-encoder': 'Encodes text into a vector. Indexes knowledge and embeds queries.',
   'cross-encoder': 'Scores a query against each candidate chunk, to reorder retrieval results.',
   decoder: 'Generates text. Used by agents to answer and to call tools.',
+  'late-interaction':
+    'Encodes text into one vector per token. Reranks retrieval results by token-level similarity.',
 };
 
 const SCHEMA_NOTES: Record<ApiSchema, { routes: string; note: string }> = {

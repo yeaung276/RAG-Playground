@@ -8,10 +8,10 @@ logger = get_logger("services.embedding")
 
 
 class Embedder(Protocol):
-    """Turns text into vectors, dense or sparse. One instance is bound to one model."""
+    """Turns text into vectors, dense, sparse or multi. One instance is bound to one model."""
 
     model: str
 
     async def embed(
         self, texts: list[str]
-    ) -> list[list[float]] | list[models.SparseVector]: ...
+    ) -> list[list[float]] | list[models.SparseVector] | list[list[list[float]]]: ...

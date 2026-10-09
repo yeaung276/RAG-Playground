@@ -30,7 +30,9 @@ class TEIReranker:
             headers=headers, timeout=httpx.Timeout(60.0, connect=10.0)
         )
 
-    async def rank(self, query: str, texts: list[str]) -> list[float]:
+    async def rank(
+        self, query: str, texts: list[str], chunk_ids: list[str]
+    ) -> list[float]:
         batches = [
             texts[i : i + TEI_MAX_BATCH] for i in range(0, len(texts), TEI_MAX_BATCH)
         ]

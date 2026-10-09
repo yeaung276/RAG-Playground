@@ -10,6 +10,7 @@ class Capability(StrEnum):
     BI_ENCODER = "bi-encoder"      # embeddings
     CROSS_ENCODER = "cross-encoder"  # reranking
     DECODER = "decoder"            # chat / generation
+    LATE_INTERACTION = "late-interaction"  # per-token embeddings
 
 
 class ApiSchema(StrEnum):
@@ -21,7 +22,7 @@ class ApiSchema(StrEnum):
 
 VALID_PAIRS: dict[ApiSchema, set[Capability]] = {
     ApiSchema.OPENAI: {Capability.BI_ENCODER, Capability.DECODER},
-    ApiSchema.TEI: {Capability.BI_ENCODER, Capability.CROSS_ENCODER},
+    ApiSchema.TEI: {Capability.BI_ENCODER, Capability.CROSS_ENCODER, Capability.LATE_INTERACTION},
     ApiSchema.COHERE: {Capability.CROSS_ENCODER},
     ApiSchema.GEMINI: {Capability.BI_ENCODER, Capability.DECODER},
 }

@@ -53,11 +53,14 @@ class EvaluationProcessor:
     async def _index_dataset_into_kb(self, experiment: Experiment) -> None:
         dataset = await self._get_dataset(experiment.dataset_id)
         config = KbConfig(**experiment.snapshot_kb_config)
+        chunker, embedders = await self.indexing.resolve_models(config)
         for name, text in read_text_files(await self.storage.load(dataset.source_key)):
             node_id = await self._create_node(experiment.knowledge_id, name, config)
-            await self.indexing.create_index(
+            await self.indexing.create_index_with(
                 Document(source=name, pages=[Page(index=0, markdown=text)]),
                 config,
+                chunker=chunker,
+                embedders=embedders,
                 node_id=node_id,
                 kb_id=experiment.knowledge_id,
             )
@@ -66,13 +69,20 @@ class EvaluationProcessor:
         dataset = await self._get_dataset(experiment.dataset_id)
         pairs = json.loads((await self.storage.load(dataset.result_key)).read())
         config = KnowledgeConfig(**experiment.snapshot_retrieval_config)
-        options = {**config.model_dump(exclude_none=True), "index_types": config.index_types}
+        embedders, reranker = await self.retrieval.resolve_models(
+            experiment.knowledge_id, index_types=config.index_types, rerank_on=config.rerank_on
+        )
+        options = config.model_dump(exclude_none=True, exclude={"index_types"})
         metrics = [Metric(m) for m in experiment.metrics]
 
         scored = []
         for pair in pairs:
-            retrieved = await self.retrieval.retrieve(
-                experiment.knowledge_id, pair["question"], **options
+            retrieved = await self.retrieval.retrieve_with(
+                experiment.knowledge_id,
+                pair["question"],
+                embedders=embedders,
+                reranker=reranker,
+                **options,
             )
             scores, status, highlights = self.evaluation.score(
                 retrieved, pair["context"], pair["source_file"], metrics

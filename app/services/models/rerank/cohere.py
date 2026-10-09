@@ -23,7 +23,9 @@ class CohereReranker:
         )
 
     @http_retry(logger)
-    async def rank(self, query: str, texts: list[str]) -> list[float]:
+    async def rank(
+        self, query: str, texts: list[str], chunk_ids: list[str]
+    ) -> list[float]:
         r = await self.client.post(
             self.base_url,
             json={"model": self.model, "query": query, "documents": texts},

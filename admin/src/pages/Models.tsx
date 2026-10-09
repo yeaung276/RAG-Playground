@@ -4,6 +4,7 @@ import {
   ArrowDownWideNarrow,
   Boxes,
   KeyRound,
+  Layers,
   Link2,
   Pencil,
   MessageSquareText,
@@ -33,6 +34,7 @@ const CAPABILITY_ICONS = {
   'bi-encoder': Waypoints,
   'cross-encoder': ArrowDownWideNarrow,
   decoder: MessageSquareText,
+  'late-interaction': Layers,
 } satisfies Record<Capability, typeof Waypoints>;
 
 const CAPABILITY_STYLES: Record<Capability, { tile: string; pill: string }> = {
@@ -47,6 +49,10 @@ const CAPABILITY_STYLES: Record<Capability, { tile: string; pill: string }> = {
   decoder: {
     tile: 'bg-gradient-to-br from-violet-500 to-fuchsia-500',
     pill: 'bg-violet-50 text-violet-700',
+  },
+  'late-interaction': {
+    tile: 'bg-gradient-to-br from-emerald-400 to-teal-500',
+    pill: 'bg-emerald-50 text-emerald-700',
   },
 };
 

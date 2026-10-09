@@ -121,6 +121,7 @@ export default function ExperimentForm({
   const { data: datasets } = useDatasets();
   const { data: embeddingModels } = useModels(1, 'bi-encoder', 100);
   const { data: rerankModels } = useModels(1, 'cross-encoder', 100);
+  const { data: lateInteractionModels } = useModels(1, 'late-interaction', 100);
   const { data: chatModels } = useModels(1, 'decoder', 100);
   const create = useCreateExperiment();
   const values = { ...VALUES, ...fixedValues };
@@ -350,7 +351,7 @@ export default function ExperimentForm({
                       >
                         <option value="">Select a model</option>
                         {(reranker?.type === 'late-interaction'
-                          ? embeddingModels?.items
+                          ? lateInteractionModels?.items
                           : rerankModels?.items
                         )?.map((m) => (
                           <option key={m.id} value={m.id}>

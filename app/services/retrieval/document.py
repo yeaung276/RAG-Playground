@@ -1,8 +1,10 @@
+from dataclasses import dataclass
 from enum import Enum
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.models.chunk import Chunk as ChunkRow
 from app.schemas.base import CamelModel
 
 # Document
@@ -45,6 +47,20 @@ class Corpus(BaseModel):
     children: list[Chunk] = []
 
 
+@dataclass
+class Retrieved:
+    """A parent chunk surfaced for a query, paired with its similarity score."""
+
+    # parent
+    chunk_id: str
+    chunk: ChunkRow | None = None
+    score: float = 0
+
+    # child
+    matched_text: str = ""
+    matched_chunk_id: str | None = None
+
+
 # Config
 ChunkingStrategy = Literal[
     "fix-sized",
@@ -78,6 +94,10 @@ class CrossEncoderReranker(CamelModel):
 class LateInteractionReranker(CamelModel):
     type: Literal["late-interaction"] = "late-interaction"
     model_id: str = Field(min_length=1)
+
+    @property
+    def vector_name(self) -> str:
+        return "late-interaction"
 
 
 class QueryExpansion(CamelModel):

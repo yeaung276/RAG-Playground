@@ -1,14 +1,17 @@
 import pytest
 import pytest_asyncio
 from fastapi import HTTPException
+from qdrant_client import models
 from sqlalchemy import select
 
 import app.services.models.model_service as model_service_module
+import app.services.retrieval.indexing_service as indexing_module
 from app.models.chunk import Chunk as ChunkRow
 from app.models.model import Model
 from app.models.node import Node
 from app.services.knowledge.kb_service import KnowledgeBaseService
 from app.services.models.model_service import ModelService
+from app.services.models.rerank import TEILateInteractionReranker
 from app.services.retrieval.document import (
     Bm25Index,
     CrossEncoderReranker,
@@ -58,9 +61,28 @@ class FakeTEIReranker:
     def __init__(self, model: str, *_args, **_kwargs):
         self.model = model
 
-    async def rank(self, query: str, texts: list[str]) -> list[float]:
+    async def rank(
+        self, query: str, texts: list[str], chunk_ids: list[str]
+    ) -> list[float]:
         FakeTEIReranker.seen.append((self.model, query, texts))
         return [float(t.count("winner")) for t in texts]
+
+
+LATE_DIM = 4
+# "winner" and "victor" share an axis: late interaction matches them, bm25 cannot.
+LATE_AXES = {"coins": 1, "winner": 2, "victor": 2}
+
+
+class FakeLateInteraction(TEILateInteractionReranker):
+    """The real adapter with a fake encoder: one unit vector per whitespace token."""
+
+    async def embed(self, texts: list[str]) -> list[list[list[float]]]:
+        def token(t: str) -> list[float]:
+            vector = [0.0] * LATE_DIM
+            vector[LATE_AXES.get(t, 0)] = 1.0
+            return vector
+
+        return [[token(t) for t in text.split()] for text in texts]
 
 
 @pytest.fixture(autouse=True)
@@ -70,6 +92,9 @@ def fake_endpoints(monkeypatch):
     FakeTEIReranker.seen = []
     monkeypatch.setattr(model_service_module, "TEIEmbedder", FakeTEIEmbedder)
     monkeypatch.setattr(model_service_module, "TEIReranker", FakeTEIReranker)
+    monkeypatch.setattr(
+        model_service_module, "TEILateInteractionReranker", FakeLateInteraction
+    )
 
 
 @pytest_asyncio.fixture
@@ -84,6 +109,7 @@ async def ids(db_sessionmaker) -> dict[str, str]:
                 ("dense-b", "bi-encoder"),
                 ("chunker", "bi-encoder"),
                 ("reranker", "cross-encoder"),
+                ("late", "late-interaction"),
             ]
         ]
         session.add_all(rows)
@@ -419,16 +445,6 @@ async def test_configured_reranker_is_not_used_unless_asked(db_sessionmaker, qdr
     assert FakeTEIReranker.seen == []
 
 
-async def test_late_interaction_reranker_is_not_supported_yet(db_sessionmaker, qdrant, ids):
-    kb_id = await _rerank_kb(
-        db_sessionmaker, qdrant, LateInteractionReranker(model_id=ids["dense-a"])
-    )
-    with pytest.raises(ValueError, match="Unsupported reranker"):
-        await RetrievalService(db_sessionmaker, qdrant).retrieve(
-            kb_id, "coins", index_types=[Bm25Index()], rerank_on="parent"
-        )
-
-
 async def test_reranker_model_that_is_gone_is_a_404(db_sessionmaker, qdrant):
     kb_id = await _rerank_kb(
         db_sessionmaker, qdrant, CrossEncoderReranker(model_id="gone")
@@ -438,3 +454,183 @@ async def test_reranker_model_that_is_gone_is_a_404(db_sessionmaker, qdrant):
             kb_id, "coins", index_types=[Bm25Index()], rerank_on="parent"
         )
     assert exc.value.status_code == 404
+
+
+# ── late interaction: stored multivectors rerank the pool ────────────────────
+
+async def _late_kb(db_sessionmaker, qdrant, ids, docs):
+    kb_id, node_id, config = await _setup(
+        db_sessionmaker, qdrant, Bm25Index(),
+        reranker=LateInteractionReranker(model_id=ids["late"]),
+    )
+    await _index(db_sessionmaker, qdrant, kb_id, node_id, config, docs)
+    return kb_id, node_id
+
+
+async def _late_rerank_kb(db_sessionmaker, qdrant, ids):
+    """bm25 favours the doc repeating "coins"; late interaction also matches the
+    query's "winner" to "victor", so it flips the order."""
+    return await _late_kb(
+        db_sessionmaker, qdrant, ids,
+        [("a.md", "coins coins coins"), ("b.md", "coins victor")],
+    )
+
+
+async def test_late_interaction_reranker_adds_a_rerank_only_multivector(
+    db_sessionmaker, qdrant, ids
+):
+    late = ids["late"]
+    kb_id, _ = await _late_kb(db_sessionmaker, qdrant, ids, [])
+
+    params = (await qdrant.get_collection(kb_id)).config.params.vectors[late]
+    assert params.size == LATE_DIM
+    assert params.multivector_config.comparator == models.MultiVectorComparator.MAX_SIM
+    assert params.hnsw_config.m == 0
+
+
+async def test_children_and_parents_both_carry_the_multivector(db_sessionmaker, qdrant, ids):
+    late = ids["late"]
+    kb_id, _ = await _late_kb(db_sessionmaker, qdrant, ids, [("a.md", "coins " * 300)])
+    points = (await qdrant.scroll(kb_id, limit=100, with_vectors=True))[0]
+    children = [p for p in points if not p.payload["parent"]]
+    parents = [p for p in points if p.payload["parent"]]
+    async with db_sessionmaker() as session:
+        rows = {r.id for r in (await session.execute(select(ChunkRow))).scalars()}
+
+    assert len(rows) > 1 and len(children) > len(rows)
+    assert all(set(p.vector) == {"bm25", late} for p in children)
+    assert all(set(p.vector) == {late} for p in parents)
+    assert {p.payload["chunk_id"] for p in children} == rows
+    assert {p.payload["own_chunk_id"] for p in parents} == rows
+    assert all(p.payload["chunk_id"] == p.payload["own_chunk_id"] for p in parents)
+    # own_chunk_id is the rerank lookup key, so it must name exactly one point
+    assert len({p.payload["own_chunk_id"] for p in points}) == len(points)
+
+
+async def test_delete_index_also_drops_the_parent_points(db_sessionmaker, qdrant, ids):
+    kb_id, node_id = await _late_kb(db_sessionmaker, qdrant, ids, [("a.md", "coins " * 300)])
+
+    await IndexingService(db_sessionmaker, qdrant).delete_index(node_id=node_id, kb_id=kb_id)
+
+    assert (await qdrant.count(kb_id)).count == 0
+
+
+# One parent, two children: "victor" lands in the first child, "coins" in the second.
+VICTOR_DOC = "victor " + "pad " * 130 + "coins"
+
+
+@pytest.mark.parametrize(
+    "rerank_on, order, scores",
+    [
+        ("parent", ["victor", "coins"], [2.0, 1.0]),
+        ("child", ["coins", "victor"], [1.0, 1.0]),
+    ],
+)
+async def test_late_interaction_rerank_scores_the_chunk_it_was_asked_to(
+    db_sessionmaker, qdrant, ids, rerank_on, order, scores
+):
+    """bm25 matches VICTOR_DOC through its "coins" child only. Its parent also
+    holds "victor", which late interaction matches to the query's "winner", so
+    parent reranking flips the order; the matched child alone cannot."""
+    kb_id, _ = await _late_kb(
+        db_sessionmaker, qdrant, ids,
+        [("a.md", "coins coins coins"), ("b.md", VICTOR_DOC)],
+    )
+    service = RetrievalService(db_sessionmaker, qdrant)
+
+    plain = await service.retrieve(
+        kb_id, "coins winner", index_types=[Bm25Index()], top_k=2
+    )
+    hits = await service.retrieve(
+        kb_id, "coins winner", index_types=[Bm25Index()], rerank_on=rerank_on, top_k=2
+    )
+
+    assert plain[0].chunk.content == "coins coins coins"
+    assert [h.chunk.content.split()[0] for h in hits] == order
+    assert [h.score for h in hits] == pytest.approx(scores)
+
+
+async def test_late_interaction_rank_answers_in_input_order(db_sessionmaker, qdrant, ids):
+    """_rerank zips scores back onto hits by position, so an unknown id must keep
+    its slot (scored 0) rather than shift the rest."""
+    kb_id, _ = await _late_rerank_kb(db_sessionmaker, qdrant, ids)
+    async with db_sessionmaker() as session:
+        parent = {r.content: r.id for r in (await session.execute(select(ChunkRow))).scalars()}
+    _, reranker = await RetrievalService(db_sessionmaker, qdrant).resolve_models(
+        kb_id, index_types=[Bm25Index()], rerank_on="parent"
+    )
+
+    scores = await reranker.rank(
+        "coins winner",
+        ["", "", ""],
+        ["unknown", parent["coins victor"], parent["coins coins coins"]],
+    )
+
+    assert scores == pytest.approx([0.0, 2.0, 1.0])
+
+
+async def test_points_go_to_qdrant_in_bounded_batches(
+    db_sessionmaker, qdrant, ids, monkeypatch
+):
+    """Multivector points are megabytes each, so one upsert per document would
+    blow Qdrant's request cap. Parents, sent last, must still all land."""
+    kb_id, node_id, config = await _setup(
+        db_sessionmaker, qdrant, Bm25Index(),
+        reranker=LateInteractionReranker(model_id=ids["late"]),
+    )
+    monkeypatch.setattr(indexing_module, "UPSERT_BATCH", 2)
+    sizes: list[int] = []
+    upsert = qdrant.upsert
+
+    async def spy(collection_name, points, **kwargs):
+        sizes.append(len(points))
+        return await upsert(collection_name, points=points, **kwargs)
+
+    monkeypatch.setattr(qdrant, "upsert", spy)
+    await _index(db_sessionmaker, qdrant, kb_id, node_id, config, [("a.md", "coins " * 300)])
+
+    parents = await qdrant.count(
+        kb_id,
+        count_filter=models.Filter(
+            must=[models.FieldCondition(key="parent", match=models.MatchValue(value=True))]
+        ),
+    )
+    async with db_sessionmaker() as session:
+        rows = (await session.execute(select(ChunkRow))).scalars().all()
+    assert len(sizes) > 1 and max(sizes) <= 2
+    assert parents.count == len(rows)
+
+
+# ── resolve once, reuse: what evaluation relies on ───────────────────────────
+
+async def test_models_resolved_once_serve_every_document_and_query(
+    db_sessionmaker, qdrant, ids, monkeypatch
+):
+    a = ids["dense-a"]
+    kb_id, node_id, config = await _setup(
+        db_sessionmaker, qdrant, VectorIndex(model_id=a),
+        reranker=LateInteractionReranker(model_id=ids["late"]),
+    )
+    indexer = IndexingService(db_sessionmaker, qdrant)
+    service = RetrievalService(db_sessionmaker, qdrant)
+    chunker, index_embedders = await indexer.resolve_models(config)
+    embedders, reranker = await service.resolve_models(
+        kb_id, index_types=[VectorIndex(model_id=a)], rerank_on="parent"
+    )
+
+    async def no_resolve(*_args, **_kwargs):
+        raise AssertionError("a model was built again")
+
+    monkeypatch.setattr(ModelService, "resolve_model", no_resolve)
+
+    for source, text in [("a.md", "coins coins coins"), ("b.md", "coins victor")]:
+        await indexer.create_index_with(
+            _doc(source, text), config,
+            chunker=chunker, embedders=index_embedders, node_id=node_id, kb_id=kb_id,
+        )
+    for _ in range(2):
+        hits = await service.retrieve_with(
+            kb_id, "coins winner",
+            embedders=embedders, reranker=reranker, rerank_on="parent", top_k=2,
+        )
+        assert hits[0].chunk.content == "coins victor"

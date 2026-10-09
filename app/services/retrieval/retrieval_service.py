@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from typing import Literal
 
 from qdrant_client import AsyncQdrantClient, models
@@ -11,19 +10,9 @@ from app.services.errors import ConflictError, NotFoundError
 from app.services.models.embedding import Bm25Embedder, Embedder
 from app.services.models.model_service import ModelService
 from app.services.models.rerank import Reranker
-from app.services.retrieval.document import IndexSpec, KbConfig
+from app.services.retrieval.document import IndexSpec, KbConfig, Retrieved
 
 logger = get_logger(__name__)
-
-
-@dataclass
-class Retrieved:
-    """A parent chunk surfaced for a query, paired with its similarity score."""
-
-    chunk_id: str
-    score: float = 0
-    matched_text: str = ""
-    chunk: ChunkRow | None = None
 
 
 class RetrievalService:
@@ -45,11 +34,29 @@ class RetrievalService:
         """Embed the query, match the nearest child embeddings, and resolve each
         to its parent chunk (small-to-big). Returns up to top_k distinct parents,
         best-scoring first."""
+        embedders, reranker = await self.resolve_models(
+            kb_id, index_types=index_types, rerank_on=rerank_on
+        )
+        return await self.retrieve_with(
+            kb_id,
+            query,
+            embedders=embedders,
+            reranker=reranker,
+            top_k=top_k,
+            rerank_on=rerank_on,
+            rerank_pool=rerank_pool,
+            prefetch_limit=prefetch_limit,
+        )
 
-        # defaults parameters
-        rerank_pool = rerank_pool or top_k
-        prefetch_limit = prefetch_limit or rerank_pool * 2
-
+    async def resolve_models(
+        self,
+        kb_id: str,
+        *,
+        index_types: list[IndexSpec],
+        rerank_on: Literal["parent", "child"] | None = None,
+    ) -> tuple[dict[str, Embedder], Reranker | None]:
+        """Validate the request against the KB's config and build its embedders,
+        plus the reranker when rerank_on is set."""
         async with self.session_maker() as session:
             kb = await session.get(KnowledgeBase, kb_id)
             if kb is None:
@@ -63,8 +70,30 @@ class RetrievalService:
         if rerank_on and config.reranker is None:
             raise ConflictError(f"Knowledge base {kb_id} has no reranker configured")
 
+        embedders = await self._get_embedding_model_from_config(index_types)
+        reranker = await self._get_reranker_from_config(kb_id, config) if rerank_on else None
+        return embedders, reranker
+
+    async def retrieve_with(
+        self,
+        kb_id: str,
+        query: str,
+        *,
+        embedders: dict[str, Embedder],
+        reranker: Reranker | None = None,
+        top_k: int = 5,
+        rerank_on: Literal["parent", "child"] | None = None,
+        rerank_pool: int | None = None,
+        prefetch_limit: int | None = None,
+    ) -> list[Retrieved]:
+        """`retrieve` with models already built by `resolve_models`."""
+
+        # defaults parameters
+        rerank_pool = rerank_pool or top_k
+        prefetch_limit = prefetch_limit or rerank_pool * 2
+
         hits = await self._scan_points(
-            kb_id, query, index_types, prefetch_limit, limit=rerank_pool
+            kb_id, query, embedders, prefetch_limit, limit=rerank_pool
         )
         if not hits:
             return []
@@ -73,7 +102,7 @@ class RetrievalService:
             return await self._hydrate_parents(hits[:top_k])
 
         hits = await self._hydrate_parents(hits)
-        return (await self._rerank(query, hits, rerank_on, config))[:top_k]
+        return (await self._rerank(query, hits, rerank_on, reranker))[:top_k]
 
     async def _get_embedding_model_from_config(
         self, index_types: list[IndexSpec]
@@ -93,7 +122,7 @@ class RetrievalService:
                         raise ValueError(f"Unsupported index type: {index!r}")
         return embedders
 
-    async def _get_reranker_from_config(self, config: KbConfig) -> Reranker:
+    async def _get_reranker_from_config(self, kb_id: str, config: KbConfig) -> Reranker:
         """Resolve the KB's reranker to its backing adapter."""
         match config.reranker.type:
             case "cross-encoder":
@@ -101,6 +130,13 @@ class RetrievalService:
                     return await ModelService(session).resolve_model(
                         config.reranker.model_id
                     )
+            case "late-interaction":
+                async with self.session_maker() as session:
+                    reranker = await ModelService(session).resolve_model(
+                        config.reranker.model_id
+                    )
+                reranker.update_context(self.qdrant, kb_id, config.reranker.model_id)
+                return reranker
             case _:
                 raise ValueError(f"Unsupported reranker: {config.reranker.type!r}")
 
@@ -116,11 +152,10 @@ class RetrievalService:
         self,
         kb_id: str,
         query: str,
-        index_types: list[IndexSpec],
+        embedders: dict[str, Embedder],
         prefetch_limit: int,
         limit: int,
     ):
-        embedders = await self._get_embedding_model_from_config(index_types)
         prefetch = [
             models.Prefetch(
                 query=(await embedder.embed([query]))[0],
@@ -139,15 +174,23 @@ class RetrievalService:
                 single.query if single else models.FusionQuery(fusion=models.Fusion.RRF)
             ),
             using=single.using if single else None,
+            query_filter=models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="parent", match=models.MatchValue(value=False)
+                    )
+                ]
+            ),
             limit=limit,
             group_size=1,
-            with_payload=["content"],
+            with_payload=["content", "own_chunk_id"],
         )
         return [
             Retrieved(
                 chunk_id=str(group.id),
                 score=group.hits[0].score,
                 matched_text=group.hits[0].payload["content"],
+                matched_chunk_id=group.hits[0].payload["own_chunk_id"],
             )
             for group in found.groups
         ]
@@ -174,18 +217,21 @@ class RetrievalService:
         query: str,
         retrieved: list[Retrieved],
         rerank_on: Literal["parent", "child"],
-        config: KbConfig,
+        reranker: Reranker,
     ) -> list[Retrieved]:
         """Rescore hits with a cross-encoder, best first. A hit whose text is
         missing scores 0 and sinks to the bottom."""
-        reranker = await self._get_reranker_from_config(config)
         texts = [
             (hit.chunk.content if hit.chunk else "")
             if rerank_on == "parent"
             else hit.matched_text
             for hit in retrieved
         ]
-        scores = await reranker.rank(query, texts)
+        chunk_ids = [
+            hit.chunk_id if rerank_on == "parent" else hit.matched_chunk_id
+            for hit in retrieved
+        ]
+        scores = await reranker.rank(query, texts, chunk_ids)
         for hit, score in zip(retrieved, scores):
             hit.score = score
         return sorted(retrieved, key=lambda hit: hit.score, reverse=True)
